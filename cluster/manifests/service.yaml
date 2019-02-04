@@ -1,0 +1,52 @@
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: vmtemplate-admission
+  labels:
+    name: vmtemplate-admission
+spec:
+  ports:
+  - name: webhook
+    port: 443
+    targetPort: 8080
+  selector:
+    name: vmtemplate-admission
+---
+apiVersion: apps/v1beta1
+kind: Deployment
+metadata:
+  name: vmtemplate-admission
+  namespace: vmtemplate-admission
+  labels:
+    name: vmtemplate-admission
+spec:
+  replicas: 1
+  template:
+    metadata:
+      name: vmtemplate-admission 
+      labels:
+        name: vmtemplate-admission
+    spec:
+      containers:
+        - name: webhook
+          image: vmtemplate-admission:latest
+          imagePullPolicy: Never
+          resources:
+            limits:
+              memory: 50Mi
+              cpu: 300m
+            requests:
+              memory: 50Mi
+              cpu: 300m
+          volumeMounts:
+            - name: webhook-certs
+              mountPath: /etc/webhook/certs
+              readOnly: true
+          securityContext:
+            readOnlyRootFilesystem: true
+      volumes:
+        - name: webhook-certs
+          secret:
+            secretName: vmtemplate-admission-certs
+

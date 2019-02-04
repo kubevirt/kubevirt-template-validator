@@ -20,21 +20,69 @@ package validating
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 
 	"k8s.io/api/admission/v1beta1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
-	//	templatev1 "github.com/openshift/api/template/v1"
+	k8sfield "k8s.io/apimachinery/pkg/util/validation/field"
+
+	templatev1 "github.com/openshift/api/template/v1"
+
+	k6tv1 "kubevirt.io/kubevirt/pkg/api/v1"
 
 	"github.com/fromanirh/kubevirt-template-validator/pkg/webhooks"
 
 	"github.com/fromanirh/kubevirt-template-validator/internal/pkg/log"
 )
 
-const VMTemplateCreateValidatePath string = "/virtualmachinetemplate-validate-create"
-const VMTemplateUpdateValidatePath string = "/virtualmachinetemplate-validate-update"
+const VMTemplateCreateValidatePath string = "/virtualmachine-template-validate-create"
+const VMTemplateUpdateValidatePath string = "/virtualmachine-template-validate-update"
 
 type admitFunc func(*v1beta1.AdmissionReview) *v1beta1.AdmissionResponse
+
+func validateVirtualMachineFromTemplate(field *k8sfield.Path, newVM *k6tv1.VirtualMachine, oldVM *k6tv1.VirtualMachine, tmpl *templatev1.Template) []metav1.StatusCause {
+	var causes []metav1.StatusCause
+	return causes
+}
+
+func admitVMTemplate(ar *v1beta1.AdmissionReview) *v1beta1.AdmissionResponse {
+	newVM, oldVM, err := getAdmissionReviewVM(ar)
+	if err != nil {
+		return webhooks.ToAdmissionResponseError(err)
+	}
+
+	informers := webhooks.GetInformers()
+	cacheKey := "" // fmt.Sprintf("%s/%s", migration.Namespace, migration.Spec.VMIName)
+	obj, exists, err := informers.VirtualMachineInformer.GetStore().GetByKey(cacheKey)
+	if err != nil {
+		return webhooks.ToAdmissionResponseError(err)
+	}
+
+	if !exists {
+		return webhooks.ToAdmissionResponseError(fmt.Errorf("the VMI %s does not exist under the cache", ""))
+	}
+	tmplObj := obj.(*templatev1.Template)
+	tmpl := tmplObj.DeepCopy()
+
+	causes := validateVirtualMachineFromTemplate(nil, newVM, oldVM, tmpl)
+	if len(causes) > 0 {
+		return webhooks.ToAdmissionResponse(causes)
+	}
+
+	reviewResponse := v1beta1.AdmissionResponse{}
+	reviewResponse.Allowed = true
+	return &reviewResponse
+}
+
+func ServeVMTemplateCreate(resp http.ResponseWriter, req *http.Request) {
+	serve(resp, req, admitVMTemplate)
+}
+
+func ServeVMTemplateUpdate(resp http.ResponseWriter, req *http.Request) {
+	serve(resp, req, admitVMTemplate)
+}
 
 func serve(resp http.ResponseWriter, req *http.Request, admit admitFunc) {
 	response := v1beta1.AdmissionReview{}
@@ -68,22 +116,25 @@ func serve(resp http.ResponseWriter, req *http.Request, admit admitFunc) {
 	resp.WriteHeader(http.StatusOK)
 }
 
-func admitVMTemplateCreate(ar *v1beta1.AdmissionReview) *v1beta1.AdmissionResponse {
-	reviewResponse := v1beta1.AdmissionResponse{}
-	reviewResponse.Allowed = true
-	return &reviewResponse
-}
+func getAdmissionReviewVM(ar *v1beta1.AdmissionReview) (*k6tv1.VirtualMachine, *k6tv1.VirtualMachine, error) {
+	var err error
+	raw := ar.Request.Object.Raw
+	newVM := k6tv1.VirtualMachine{}
 
-func ServeVMTemplateCreate(resp http.ResponseWriter, req *http.Request) {
-	serve(resp, req, admitVMTemplateCreate)
-}
+	err = json.Unmarshal(raw, &newVM)
+	if err != nil {
+		return nil, nil, err
+	}
 
-func admitVMTemplateUpdate(ar *v1beta1.AdmissionReview) *v1beta1.AdmissionResponse {
-	reviewResponse := v1beta1.AdmissionResponse{}
-	reviewResponse.Allowed = true
-	return &reviewResponse
-}
+	if ar.Request.Operation == v1beta1.Update {
+		raw := ar.Request.OldObject.Raw
+		oldVM := k6tv1.VirtualMachine{}
+		err = json.Unmarshal(raw, &oldVM)
+		if err != nil {
+			return nil, nil, err
+		}
+		return &newVM, &oldVM, nil
+	}
 
-func ServeVMTemplateUpdate(resp http.ResponseWriter, req *http.Request) {
-	serve(resp, req, admitVMTemplateUpdate)
+	return &newVM, nil, nil
 }

@@ -4,6 +4,6 @@ package version
 
 const (
   BRANCH = "master"
-  REVISION = "3d97128"
+  REVISION = "eb2bfd7"
   KUBEVERSION = "0.0.1"
 )

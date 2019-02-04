@@ -20,14 +20,13 @@ package main
 
 import (
 	"fmt"
-	"net/http"
 	"os"
 
 	flag "github.com/spf13/pflag"
 
 	"github.com/fromanirh/kubevirt-template-validator/internal/pkg/k8sutils"
 	"github.com/fromanirh/kubevirt-template-validator/internal/pkg/log"
-	"github.com/fromanirh/kubevirt-template-validator/pkg/webhooks/validating"
+	"github.com/fromanirh/kubevirt-template-validator/pkg/validator"
 	_ "github.com/fromanirh/okdutil/okd"
 )
 
@@ -49,19 +48,12 @@ func Main() int {
 	tlsInfo.UpdateFromK8S()
 	defer tlsInfo.Clean()
 
-	http.HandleFunc(validating.VMTemplateCreateValidatePath, func(w http.ResponseWriter, r *http.Request) {
-		validating.ServeVMTemplateCreate(w, r)
-	})
-	http.HandleFunc(validating.VMTemplateUpdateValidatePath, func(w http.ResponseWriter, r *http.Request) {
-		validating.ServeVMTemplateUpdate(w, r)
-	})
-	if tlsInfo.IsEnabled() {
-		log.Log.Infof("TLS configured, serving over HTTPS")
-		log.Log.Infof("%s", http.ListenAndServeTLS(listenAddress, tlsInfo.CertFilePath, tlsInfo.KeyFilePath, nil))
-	} else {
-		log.Log.Infof("TLS *NOT* configured, serving over HTTP")
-		log.Log.Infof("%s", http.ListenAndServe(listenAddress, nil))
+	app := validator.App{
+		ListenAddress: listenAddress,
+		TLSInfo:       tlsInfo,
 	}
+	app.Run()
+
 	return 0
 }
 

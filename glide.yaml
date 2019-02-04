@@ -1,0 +1,27 @@
+package: github.com/fromanirh/kubevirt-template-validator
+import:
+- package: github.com/go-kit/kit
+  version: fe6fe28ba0d54b39f27e79cddba4911b7e4fffc7
+  subpackages:
+  - log
+- package: github.com/k8snetworkplumbingwg/network-attachment-definition-client
+  version: 379ff533bf290f5bd6a5dfed0ca382cc3c7cc8d2
+  repo: https://github.com/booxter/network-attachment-definition-client.git
+  vcs: git
+- package: k8s.io/client-go
+  version: kubernetes-1.11.2
+- package: k8s.io/apimachinery
+  version: kubernetes-1.11.2
+- package: k8s.io/api
+  version: kubernetes-1.11.2
+- package: github.com/openshift/client-go
+  version: release-3.11
+- package: github.com/spf13/pflag
+  version: 1.0.1
+- package: kubevirt.io/kubevirt
+  repo: https://github.com/kubevirt/kubevirt.git
+  version: ~0.9
+- package: kubevirt.io/containerized-data-importer
+  repo: https://github.com/kubevirt/containerized-data-importer.git
+- package: github.com/gorilla/websocket
+  version: 0647012449a1878977514a346b26637dd022446c

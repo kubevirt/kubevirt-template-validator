@@ -23,9 +23,57 @@ import (
 	"fmt"
 	"io/ioutil"
 	"net/http"
+	"sync"
 
 	"k8s.io/api/admission/v1beta1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/client-go/tools/cache"
+
+	"kubevirt.io/kubevirt/pkg/kubecli"
+
+	"github.com/fromanirh/kubevirt-template-validator/pkg/virtinformers"
+
+	"github.com/fromanirh/kubevirt-template-validator/internal/pkg/k8sutils"
+	"github.com/fromanirh/kubevirt-template-validator/internal/pkg/log"
 )
+
+var webhookInformers *Informers
+var once sync.Once
+
+type Informers struct {
+	TemplateInformer       cache.SharedIndexInformer
+	VirtualMachineInformer cache.SharedIndexInformer
+}
+
+func GetInformers() *Informers {
+	once.Do(func() {
+		webhookInformers = newInformers()
+	})
+	return webhookInformers
+}
+
+// SetInformers created for unittest usage only
+func SetInformers(informers *Informers) {
+	once.Do(func() {
+		webhookInformers = informers
+	})
+}
+
+func newInformers() *Informers {
+	kubeClient, err := kubecli.GetKubevirtClient()
+	if err != nil {
+		panic(err)
+	}
+	namespace, err := k8sutils.GetNamespace()
+	if err != nil {
+		log.Log.Errorf("Error searching for namespace: %v", err)
+		return nil
+	}
+	kubeInformerFactory := virtinformers.NewKubeInformerFactory(kubeClient.RestClient(), namespace)
+	return &Informers{
+		TemplateInformer: kubeInformerFactory.Template(),
+	}
+}
 
 // GetAdmissionReview
 func GetAdmissionReview(r *http.Request) (*v1beta1.AdmissionReview, error) {
@@ -45,4 +93,52 @@ func GetAdmissionReview(r *http.Request) (*v1beta1.AdmissionReview, error) {
 	ar := &v1beta1.AdmissionReview{}
 	err := json.Unmarshal(body, ar)
 	return ar, err
+}
+
+// ToAdmissionResponseError
+func ToAdmissionResponseError(err error) *v1beta1.AdmissionResponse {
+	log.Log.Errorf("admission generic error: %v", err)
+
+	return &v1beta1.AdmissionResponse{
+		Result: &metav1.Status{
+			Message: err.Error(),
+			Code:    http.StatusBadRequest,
+		},
+	}
+}
+
+func ToAdmissionResponse(causes []metav1.StatusCause) *v1beta1.AdmissionResponse {
+	log.Log.Infof("rejected vmi admission")
+
+	globalMessage := ""
+	for _, cause := range causes {
+		if globalMessage == "" {
+			globalMessage = cause.Message
+		} else {
+			globalMessage = fmt.Sprintf("%s, %s", globalMessage, cause.Message)
+		}
+	}
+
+	return &v1beta1.AdmissionResponse{
+		Result: &metav1.Status{
+			Message: globalMessage,
+			Reason:  metav1.StatusReasonInvalid,
+			Code:    http.StatusUnprocessableEntity,
+			Details: &metav1.StatusDetails{
+				Causes: causes,
+			},
+		},
+	}
+}
+
+func ValidationErrorsToAdmissionResponse(errs []error) *v1beta1.AdmissionResponse {
+	var causes []metav1.StatusCause
+	for _, e := range errs {
+		causes = append(causes,
+			metav1.StatusCause{
+				Message: e.Error(),
+			},
+		)
+	}
+	return ToAdmissionResponse(causes)
 }

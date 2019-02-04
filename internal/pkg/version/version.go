@@ -3,7 +3,7 @@
 package version
 
 const (
-  BRANCH = "use-glog"
-  REVISION = "00139b9"
-  KUBEVERSION = "0.12.0"
+  BRANCH = "master"
+  REVISION = "3d97128"
+  KUBEVERSION = "0.0.1"
 )

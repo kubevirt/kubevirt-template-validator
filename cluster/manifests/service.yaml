@@ -3,6 +3,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: vmtemplate-admission
+  namespace: kubevirt
   labels:
     name: vmtemplate-admission
 spec:
@@ -17,7 +18,7 @@ apiVersion: apps/v1beta1
 kind: Deployment
 metadata:
   name: vmtemplate-admission
-  namespace: vmtemplate-admission
+  namespace: kubevirt
   labels:
     name: vmtemplate-admission
 spec:

@@ -29,10 +29,12 @@ import (
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	"kubevirt.io/kubevirt/pkg/api/v1"
+	v1 "kubevirt.io/kubevirt/pkg/api/v1"
 	"kubevirt.io/kubevirt/pkg/kubecli"
 	"kubevirt.io/kubevirt/tests"
 )
+
+const InvalidDataVolumeUrl = "http://127.0.0.1/invalid"
 
 var _ = Describe("DataVolume Integration", func() {
 	flag.Parse()
@@ -52,6 +54,9 @@ var _ = Describe("DataVolume Integration", func() {
 	})
 
 	runVMIAndExpectLaunch := func(vmi *v1.VirtualMachineInstance, timeout int) *v1.VirtualMachineInstance {
+		By("Checking that the DataVolume has succeeded")
+		tests.WaitForSuccessfulDataVolumeImport(vmi, timeout)
+
 		By("Starting a VirtualMachineInstance with DataVolume")
 		var obj *v1.VirtualMachineInstance
 		var err error
@@ -59,6 +64,7 @@ var _ = Describe("DataVolume Integration", func() {
 			obj, err = virtClient.VirtualMachineInstance(tests.NamespaceTestDefault).Create(vmi)
 			return err
 		}, timeout, 1*time.Second).ShouldNot(HaveOccurred())
+
 		By("Waiting until the VirtualMachineInstance will start")
 		tests.WaitForSuccessfulVMIStartWithTimeout(obj, timeout)
 		return obj
@@ -77,7 +83,7 @@ var _ = Describe("DataVolume Integration", func() {
 				num := 2
 				By("Starting and stopping the VirtualMachineInstance a number of times")
 				for i := 1; i <= num; i++ {
-					vmi := runVMIAndExpectLaunch(vmi, 120)
+					vmi := runVMIAndExpectLaunch(vmi, 240)
 
 					// Verify console on last iteration to verify the VirtualMachineInstance is still booting properly
 					// after being restarted multiple times
@@ -94,6 +100,35 @@ var _ = Describe("DataVolume Integration", func() {
 				}
 				err = virtClient.CdiClient().CdiV1alpha1().DataVolumes(dataVolume.Namespace).Delete(dataVolume.Name, &metav1.DeleteOptions{})
 				Expect(err).To(BeNil())
+			})
+		})
+	})
+
+	Describe("Starting a VirtualMachine with an invalid DataVolume", func() {
+		Context("using DataVolume with invalid URL", func() {
+			It("should correctly handle invalid DataVolumes", func() {
+				// Don't actually create the DataVolume since it's invalid.
+				dataVolume := tests.NewRandomDataVolumeWithHttpImport(InvalidDataVolumeUrl, tests.NamespaceTestDefault)
+				//  Add the invalid DataVolume to a VMI
+				vmi := tests.NewRandomVMIWithDataVolume(dataVolume.Name)
+				// Create a VM for this VMI
+				vm := tests.NewRandomVirtualMachine(vmi, true)
+
+				By("Creating a VM with an invalid DataVolume")
+				_, err := virtClient.VirtualMachine(vm.Namespace).Create(vm)
+				Expect(err).ToNot(HaveOccurred())
+
+				By("Waiting for VMI to be created")
+				Eventually(func() v1.VirtualMachineInstancePhase {
+					vmi, err = virtClient.VirtualMachineInstance(vmi.Namespace).Get(vm.GetName(), &metav1.GetOptions{})
+					if err != nil {
+						Expect(err.Error()).To(ContainSubstring("not found"),
+							"A 404 while VMI is being created would be normal. All other errors are unexpected")
+						return v1.VmPhaseUnset
+					}
+					return vmi.Status.Phase
+
+				}, 100*time.Second, 5*time.Second).Should(Equal(v1.Pending), "VMI with invalid DataVolume should not be scheduled")
 			})
 		})
 	})

@@ -27,10 +27,10 @@ import (
 	"strings"
 	"time"
 
-	"kubevirt.io/kubevirt/pkg/host-disk"
+	hostdisk "kubevirt.io/kubevirt/pkg/host-disk"
 	"kubevirt.io/kubevirt/pkg/virt-controller/services"
 
-	"github.com/google/goexpect"
+	expect "github.com/google/goexpect"
 	. "github.com/onsi/ginkgo"
 	"github.com/onsi/ginkgo/extensions/table"
 	. "github.com/onsi/gomega"
@@ -40,7 +40,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/rand"
 
-	"kubevirt.io/kubevirt/pkg/api/v1"
+	v1 "kubevirt.io/kubevirt/pkg/api/v1"
 	"kubevirt.io/kubevirt/pkg/kubecli"
 	"kubevirt.io/kubevirt/pkg/log"
 	"kubevirt.io/kubevirt/tests"
@@ -48,7 +48,7 @@ import (
 
 const (
 	diskSerial        = "FB-fb_18030C10002032"
-	namespaceKubevirt = "kube-system"
+	namespaceKubevirt = "kubevirt"
 )
 
 type VMICreationFunc func(string) *v1.VirtualMachineInstance
@@ -111,10 +111,9 @@ var _ = Describe("Storage", func() {
 			It("should create a writeable emptyDisk with the right capacity", func() {
 
 				// Start the VirtualMachineInstance with the empty disk attached
-				vmi := tests.NewRandomVMIWithEphemeralDiskAndUserdata(tests.RegistryDiskFor(tests.RegistryDiskCirros), "echo hi!")
+				vmi := tests.NewRandomVMIWithEphemeralDiskAndUserdata(tests.ContainerDiskFor(tests.ContainerDiskCirros), "echo hi!")
 				vmi.Spec.Domain.Devices.Disks = append(vmi.Spec.Domain.Devices.Disks, v1.Disk{
-					Name:       "emptydisk1",
-					VolumeName: "emptydiskvolume1",
+					Name: "emptydisk1",
 					DiskDevice: v1.DiskDevice{
 						Disk: &v1.DiskTarget{
 							Bus: "virtio",
@@ -122,7 +121,7 @@ var _ = Describe("Storage", func() {
 					},
 				})
 				vmi.Spec.Volumes = append(vmi.Spec.Volumes, v1.Volume{
-					Name: "emptydiskvolume1",
+					Name: "emptydisk1",
 					VolumeSource: v1.VolumeSource{
 						EmptyDisk: &v1.EmptyDiskSource{
 							Capacity: resource.MustParse("2Gi"),
@@ -161,11 +160,10 @@ var _ = Describe("Storage", func() {
 			It("should create a writeable emptyDisk with the specified serial number", func() {
 
 				// Start the VirtualMachineInstance with the empty disk attached
-				vmi := tests.NewRandomVMIWithEphemeralDiskAndUserdata(tests.RegistryDiskFor(tests.RegistryDiskCirros), "echo hi!")
+				vmi := tests.NewRandomVMIWithEphemeralDiskAndUserdata(tests.ContainerDiskFor(tests.ContainerDiskCirros), "echo hi!")
 				vmi.Spec.Domain.Devices.Disks = append(vmi.Spec.Domain.Devices.Disks, v1.Disk{
-					Name:       "emptydisk1",
-					VolumeName: "emptydiskvolume1",
-					Serial:     diskSerial,
+					Name:   "emptydisk1",
+					Serial: diskSerial,
 					DiskDevice: v1.DiskDevice{
 						Disk: &v1.DiskTarget{
 							Bus: "virtio",
@@ -173,7 +171,7 @@ var _ = Describe("Storage", func() {
 					},
 				})
 				vmi.Spec.Volumes = append(vmi.Spec.Volumes, v1.Volume{
-					Name: "emptydiskvolume1",
+					Name: "emptydisk1",
 					VolumeSource: v1.VolumeSource{
 						EmptyDisk: &v1.EmptyDiskSource{
 							Capacity: resource.MustParse("1Gi"),
@@ -262,7 +260,7 @@ var _ = Describe("Storage", func() {
 			BeforeEach(func() {
 				// Setup second PVC to use in this context
 				tests.CreateHostPathPv(tests.CustomHostPath, tests.HostPathCustom)
-				tests.CreatePVC(tests.CustomHostPath, "1Gi")
+				tests.CreateHostPathPVC(tests.CustomHostPath, "1Gi")
 			}, 120)
 
 			AfterEach(func() {
@@ -397,7 +395,7 @@ var _ = Describe("Storage", func() {
 			BeforeEach(func() {
 				for _, pvc := range pvcs {
 					tests.CreateHostPathPv(pvc, filepath.Join(tests.HostPathBase, pvc))
-					tests.CreatePVC(pvc, "1G")
+					tests.CreateHostPathPVC(pvc, "1G")
 				}
 			}, 120)
 
@@ -493,8 +491,9 @@ var _ = Describe("Storage", func() {
 
 				By("Checking events")
 				objectEventWatcher := tests.NewObjectEventWatcher(vmi).SinceWatchedObjectResourceVersion().Timeout(time.Duration(120) * time.Second)
-				event := objectEventWatcher.WaitFor(tests.WarningEvent, v1.SyncFailed.String())
-				Expect(event).ToNot(BeNil())
+				stopChan := make(chan struct{})
+				defer close(stopChan)
+				objectEventWatcher.WaitFor(stopChan, tests.WarningEvent, v1.SyncFailed.String())
 
 			})
 
@@ -510,9 +509,9 @@ var _ = Describe("Storage", func() {
 				By("Checking events")
 				objectEventWatcher := tests.NewObjectEventWatcher(vmi).SinceWatchedObjectResourceVersion().Timeout(time.Duration(30) * time.Second)
 				objectEventWatcher.FailOnWarnings()
-				event := objectEventWatcher.WaitFor(tests.EventType(hostdisk.EventTypeToleratedSmallPV), hostdisk.EventReasonToleratedSmallPV)
-				Expect(event).ToNot(BeNil())
-
+				stopChan := make(chan struct{})
+				defer close(stopChan)
+				objectEventWatcher.WaitFor(stopChan, tests.EventType(hostdisk.EventTypeToleratedSmallPV), hostdisk.EventReasonToleratedSmallPV)
 			})
 		})
 
@@ -541,6 +540,36 @@ var _ = Describe("Storage", func() {
 				By("Checking that the VirtualMachineInstance console has expected output")
 				expecter, err := tests.LoggedInCirrosExpecter(vmi)
 				Expect(err).ToNot(HaveOccurred(), "Cirros login successfully")
+				expecter.Close()
+			})
+		})
+
+		Context("With Alpine ISCSI PVC", func() {
+
+			pvName := "test-iscsi-lun" + rand.String(48)
+
+			BeforeEach(func() {
+				// Start a ISCSI POD and service
+				By("Creating a ISCSI POD")
+				iscsiTargetIP := tests.CreateISCSITargetPOD()
+				tests.CreateISCSIPvAndPvc(pvName, "1Gi", iscsiTargetIP)
+			}, 60)
+
+			AfterEach(func() {
+				// create a new PV and PVC (PVs can't be reused)
+				tests.DeletePvAndPvc(pvName)
+			}, 60)
+
+			It("should be successfully started", func() {
+				By("Create a VMIWithPVC")
+				// Start the VirtualMachineInstance with the PVC attached
+				vmi := tests.NewRandomVMIWithPVC(pvName)
+				By("Launching a VMI with PVC ")
+				tests.RunVMIAndExpectLaunch(vmi, false, 180)
+
+				By("Checking that the VirtualMachineInstance console has expected output")
+				expecter, err := tests.LoggedInAlpineExpecter(vmi)
+				Expect(err).ToNot(HaveOccurred(), "Alpine login successfully")
 				expecter.Close()
 			})
 		})

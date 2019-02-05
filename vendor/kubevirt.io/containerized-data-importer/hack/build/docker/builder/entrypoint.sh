@@ -14,8 +14,14 @@
 #See the License for the specific language governing permissions and
 #limitations under the License.
 
-set -eo pipefail
+set +e
 
 source /etc/profile.d/gimme.sh
 
+export PATH=${GOPATH}/bin:$PATH
+
 eval "$@"
+
+if [ -n ${RUN_UID} ] && [ -n ${RUN_GID} ]; then
+    find . -user root -exec chown -h ${RUN_UID}:${RUN_GID} {} \;
+fi

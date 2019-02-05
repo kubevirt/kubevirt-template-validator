@@ -31,24 +31,11 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	utilerrors "k8s.io/apimachinery/pkg/util/errors"
 
-	cdiv1 "kubevirt.io/containerized-data-importer/pkg/apis/datavolumecontroller/v1alpha1"
+	cdiv1 "kubevirt.io/containerized-data-importer/pkg/apis/core/v1alpha1"
 	virtv1 "kubevirt.io/kubevirt/pkg/api/v1"
 	"kubevirt.io/kubevirt/pkg/kubecli"
 	"kubevirt.io/kubevirt/pkg/log"
 )
-
-// GetControllerOf returns the controllerRef if controllee has a controller,
-// otherwise returns nil.
-func GetControllerOf(controllee metav1.Object) *metav1.OwnerReference {
-	ownerRefs := controllee.GetOwnerReferences()
-	for i := range ownerRefs {
-		owner := &ownerRefs[i]
-		if owner.Controller != nil && *owner.Controller == true {
-			return owner
-		}
-	}
-	return nil
-}
 
 type BaseControllerRefManager struct {
 	Controller metav1.Object
@@ -84,7 +71,7 @@ func (m *BaseControllerRefManager) CanAdopt() error {
 //
 // No reconciliation will be attempted if the controller is being deleted.
 func (m *BaseControllerRefManager) ClaimObject(obj metav1.Object, match func(metav1.Object) bool, adopt, release func(metav1.Object) error) (bool, error) {
-	controllerRef := GetControllerOf(obj)
+	controllerRef := metav1.GetControllerOf(obj)
 	if controllerRef != nil {
 		if controllerRef.UID != m.Controller.GetUID() {
 			// Owned by someone else. Ignore.

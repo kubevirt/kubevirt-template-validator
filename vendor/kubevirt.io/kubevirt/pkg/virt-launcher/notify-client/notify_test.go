@@ -31,13 +31,13 @@ import (
 	"k8s.io/client-go/tools/record"
 
 	"github.com/golang/mock/gomock"
-	"github.com/libvirt/libvirt-go"
+	libvirt "github.com/libvirt/libvirt-go"
 	. "github.com/onsi/ginkgo"
 	"github.com/onsi/ginkgo/extensions/table"
 	. "github.com/onsi/gomega"
 	"k8s.io/apimachinery/pkg/watch"
 
-	"kubevirt.io/kubevirt/pkg/api/v1"
+	v1 "kubevirt.io/kubevirt/pkg/api/v1"
 	"kubevirt.io/kubevirt/pkg/testutils"
 
 	notifyserver "kubevirt.io/kubevirt/pkg/virt-handler/notify-server"
@@ -100,12 +100,10 @@ var _ = Describe("Notify", func() {
 				mockDomain.EXPECT().GetState().Return(state, -1, nil)
 				mockDomain.EXPECT().Free()
 				mockDomain.EXPECT().GetName().Return("test", nil).AnyTimes()
-				if state == libvirt.DOMAIN_RUNNING {
-					mockDomain.EXPECT().GetXMLDesc(gomock.Eq(libvirt.DOMAIN_XML_MIGRATABLE)).Return(string(x), nil)
-				}
-				mockDomain.EXPECT().GetXMLDesc(gomock.Eq(libvirt.DOMAIN_XML_INACTIVE)).Return(string(x), nil)
+				mockDomain.EXPECT().GetXMLDesc(gomock.Eq(libvirt.DomainXMLFlags(0))).Return(string(x), nil)
+				mockDomain.EXPECT().GetMetadata(libvirt.DOMAIN_METADATA_ELEMENT, "http://kubevirt.io", libvirt.DOMAIN_AFFECT_CONFIG).Return(`<kubevirt></kubevirt>`, nil)
 
-				libvirtEventCallback(mockCon, util.NewDomainFromName("test", "1234"), &libvirt.DomainEventLifecycle{Event: event}, client, deleteNotificationSent)
+				eventCallback(mockCon, util.NewDomainFromName("test", "1234"), libvirtEvent{Event: &libvirt.DomainEventLifecycle{Event: event}}, client, deleteNotificationSent, nil)
 
 				timedOut := false
 				timeout := time.After(2 * time.Second)
@@ -115,7 +113,7 @@ var _ = Describe("Notify", func() {
 				case event := <-eventChan:
 					newDomain, ok := event.Object.(*api.Domain)
 					newDomain.Spec.XMLName = xml.Name{}
-					Expect(ok).To(Equal(true))
+					Expect(ok).To(Equal(true), "should typecase domain")
 					Expect(reflect.DeepEqual(domain.Spec, newDomain.Spec)).To(Equal(true))
 					Expect(event.Type).To(Equal(kubeEventType))
 				}
@@ -132,11 +130,11 @@ var _ = Describe("Notify", func() {
 		It("should receive a delete event when a VirtualMachineInstance is undefined",
 			func() {
 				mockDomain.EXPECT().Free()
-				mockDomain.EXPECT().GetXMLDesc(gomock.Eq(libvirt.DOMAIN_XML_INACTIVE)).Return("", libvirt.Error{Code: libvirt.ERR_NO_DOMAIN})
+				mockDomain.EXPECT().GetXMLDesc(gomock.Eq(libvirt.DomainXMLFlags(0))).Return("", libvirt.Error{Code: libvirt.ERR_NO_DOMAIN})
 				mockDomain.EXPECT().GetState().Return(libvirt.DOMAIN_NOSTATE, -1, libvirt.Error{Code: libvirt.ERR_NO_DOMAIN})
 				mockDomain.EXPECT().GetName().Return("test", nil).AnyTimes()
 
-				libvirtEventCallback(mockCon, util.NewDomainFromName("test", "1234"), &libvirt.DomainEventLifecycle{Event: libvirt.DOMAIN_EVENT_UNDEFINED}, client, deleteNotificationSent)
+				eventCallback(mockCon, util.NewDomainFromName("test", "1234"), libvirtEvent{Event: &libvirt.DomainEventLifecycle{Event: libvirt.DOMAIN_EVENT_UNDEFINED}}, client, deleteNotificationSent, nil)
 
 				timedOut := false
 				timeout := time.After(2 * time.Second)
@@ -158,6 +156,41 @@ var _ = Describe("Notify", func() {
 				Expect(timedOut).To(Equal(false))
 			})
 
+		It("should update Interface status",
+			func() {
+				domain := api.NewMinimalDomain("test")
+				x, err := xml.Marshal(domain.Spec)
+				Expect(err).ToNot(HaveOccurred())
+				mockDomain.EXPECT().Free()
+				mockDomain.EXPECT().GetState().Return(libvirt.DOMAIN_RUNNING, -1, nil)
+				mockDomain.EXPECT().GetName().Return("test", nil).AnyTimes()
+				mockDomain.EXPECT().GetXMLDesc(gomock.Eq(libvirt.DomainXMLFlags(0))).Return(string(x), nil)
+				mockDomain.EXPECT().GetMetadata(libvirt.DOMAIN_METADATA_ELEMENT, "http://kubevirt.io", libvirt.DOMAIN_AFFECT_CONFIG).Return(`<kubevirt></kubevirt>`, nil)
+
+				interfaceStatus := []api.InterfaceStatus{
+					api.InterfaceStatus{
+						Name: "test", Ip: "1.1.1.1/24", Mac: "1", InterfaceName: "eth1",
+					},
+					api.InterfaceStatus{
+						Name: "test2",
+					},
+				}
+
+				eventCallback(mockCon, util.NewDomainFromName("test", "1234"), libvirtEvent{}, client, deleteNotificationSent, &interfaceStatus)
+
+				timedOut := false
+				timeout := time.After(2 * time.Second)
+				select {
+				case <-timeout:
+					timedOut = true
+				case event := <-eventChan:
+					newDomain, _ := event.Object.(*api.Domain)
+					newInterfaceStatuses := newDomain.Status.Interfaces
+					Expect(len(newInterfaceStatuses)).To(Equal(2))
+					Expect(reflect.DeepEqual(interfaceStatus, newInterfaceStatuses)).To(Equal(true))
+				}
+				Expect(timedOut).To(Equal(false))
+			})
 	})
 
 	Describe("K8s Events", func() {

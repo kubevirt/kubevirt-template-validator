@@ -32,7 +32,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 
-	"kubevirt.io/kubevirt/pkg/api/v1"
+	v1 "kubevirt.io/kubevirt/pkg/api/v1"
 	"kubevirt.io/kubevirt/pkg/precond"
 )
 
@@ -96,8 +96,17 @@ type Domain struct {
 }
 
 type DomainStatus struct {
-	Status LifeCycle
-	Reason StateChangeReason
+	Status     LifeCycle
+	Reason     StateChangeReason
+	Interfaces []InterfaceStatus
+}
+
+type InterfaceStatus struct {
+	Name          string
+	Mac           string
+	Ip            string
+	IPs           []string
+	InterfaceName string
 }
 
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
@@ -206,9 +215,9 @@ type Metadata struct {
 }
 
 type KubeVirtMetadata struct {
-	UID         types.UID           `xml:"uid"`
-	GracePeriod GracePeriodMetadata `xml:"graceperiod,omitempty"`
-	Migration   *MigrationMetadata  `xml:"migration,omitempty"`
+	UID         types.UID            `xml:"uid"`
+	GracePeriod *GracePeriodMetadata `xml:"graceperiod,omitempty"`
+	Migration   *MigrationMetadata   `xml:"migration,omitempty"`
 }
 
 type MigrationMetadata struct {
@@ -268,6 +277,7 @@ type Devices struct {
 	Emulator    string       `xml:"emulator,omitempty"`
 	Interfaces  []Interface  `xml:"interface"`
 	Channels    []Channel    `xml:"channel"`
+	HostDevices []HostDevice `xml:"hostdev,omitempty"`
 	Controllers []Controller `xml:"controller,omitempty"`
 	Video       []Video      `xml:"video"`
 	Graphics    []Graphics   `xml:"graphics"`
@@ -278,6 +288,20 @@ type Devices struct {
 	Watchdog    *Watchdog    `xml:"watchdog,omitempty"`
 	Rng         *Rng         `xml:"rng,omitempty"`
 }
+
+// BEGIN HostDevice -----------------------------
+type HostDevice struct {
+	Source    HostDeviceSource `xml:"source"`
+	Type      string           `xml:"type,attr"`
+	BootOrder *BootOrder       `xml:"boot,omitempty"`
+	Managed   string           `xml:"managed,attr"`
+}
+
+type HostDeviceSource struct {
+	Address *Address `xml:"address,omitempty"`
+}
+
+// END HostDevice -----------------------------
 
 // BEGIN Controller -----------------------------
 
@@ -360,9 +384,9 @@ type DiskSourceHost struct {
 }
 
 type BackingStore struct {
-	Type   string             `xml:"type,attr"`
-	Format BackingStoreFormat `xml:"format"`
-	Source *DiskSource        `xml:"source"`
+	Type   string              `xml:"type,attr,omitempty"`
+	Format *BackingStoreFormat `xml:"format,omitempty"`
+	Source *DiskSource         `xml:"source,omitempty"`
 }
 
 type BackingStoreFormat struct {
@@ -422,6 +446,7 @@ type Interface struct {
 	Target              *InterfaceTarget `xml:"target,omitempty"`
 	Model               *Model           `xml:"model,omitempty"`
 	MAC                 *MAC             `xml:"mac,omitempty"`
+	MTU                 *MTU             `xml:"mtu,omitempty"`
 	BandWidth           *BandWidth       `xml:"bandwidth,omitempty"`
 	BootOrder           *BootOrder       `xml:"boot,omitempty"`
 	LinkState           *LinkState       `xml:"link,omitempty"`
@@ -450,15 +475,20 @@ type MAC struct {
 	MAC string `xml:"address,attr"`
 }
 
+type MTU struct {
+	Size string `xml:"size,attr"`
+}
+
 type FilterRef struct {
 	Filter string `xml:"filter,attr"`
 }
 
 type InterfaceSource struct {
-	Network string `xml:"network,attr,omitempty"`
-	Device  string `xml:"dev,attr,omitempty"`
-	Bridge  string `xml:"bridge,attr,omitempty"`
-	Mode    string `xml:"mode,attr,omitempty"`
+	Network string   `xml:"network,attr,omitempty"`
+	Device  string   `xml:"dev,attr,omitempty"`
+	Bridge  string   `xml:"bridge,attr,omitempty"`
+	Mode    string   `xml:"mode,attr,omitempty"`
+	Address *Address `xml:"address,omitempty"`
 }
 
 type Model struct {
@@ -573,7 +603,7 @@ type Timer struct {
 
 type Channel struct {
 	Type   string         `xml:"type,attr"`
-	Source ChannelSource  `xml:"source,omitempty"`
+	Source *ChannelSource `xml:"source,omitempty"`
 	Target *ChannelTarget `xml:"target,omitempty"`
 }
 
@@ -582,6 +612,7 @@ type ChannelTarget struct {
 	Type    string `xml:"type,attr"`
 	Address string `xml:"address,attr,omitempty"`
 	Port    uint   `xml:"port,attr,omitempty"`
+	State   string `xml:"state,attr,omitempty"`
 }
 
 type ChannelSource struct {

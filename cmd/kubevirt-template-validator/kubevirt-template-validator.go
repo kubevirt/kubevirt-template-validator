@@ -27,6 +27,7 @@ import (
 	"github.com/fromanirh/kubevirt-template-validator/internal/pkg/k8sutils"
 	"github.com/fromanirh/kubevirt-template-validator/internal/pkg/log"
 	"github.com/fromanirh/kubevirt-template-validator/pkg/validator"
+	"github.com/fromanirh/kubevirt-template-validator/pkg/webhooks/validating"
 	_ "github.com/fromanirh/okdutil/okd"
 )
 
@@ -38,6 +39,7 @@ func Main() int {
 	port := flag.StringP("port", "P", "19999", "port on which the server is listening to")
 	flag.StringVarP(&tlsInfo.CertFilePath, "cert-file", "c", "", "override path to TLS certificate - you need also the key to enable TLS")
 	flag.StringVarP(&tlsInfo.KeyFilePath, "key-file", "k", "", "override path to TLS key - you need also the cert to enable TLS")
+	dumpMode := flag.BoolP("dump", "D", false, "dump data involved in the admission control")
 	flag.Parse()
 
 	listenAddress := fmt.Sprintf("%s:%s", *addr, *port)
@@ -47,6 +49,8 @@ func Main() int {
 
 	tlsInfo.UpdateFromK8S()
 	defer tlsInfo.Clean()
+
+	validating.SetDumpMode(*dumpMode)
 
 	app := validator.App{
 		ListenAddress: listenAddress,

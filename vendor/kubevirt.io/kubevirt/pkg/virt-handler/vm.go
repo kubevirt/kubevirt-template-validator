@@ -32,6 +32,7 @@ import (
 	"time"
 
 	k8sv1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/errors"
 	v12 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/wait"
@@ -39,19 +40,20 @@ import (
 	"k8s.io/client-go/tools/record"
 	"k8s.io/client-go/util/workqueue"
 
-	"kubevirt.io/kubevirt/pkg/api/v1"
-	"kubevirt.io/kubevirt/pkg/cloud-init"
+	v1 "kubevirt.io/kubevirt/pkg/api/v1"
+	cloudinit "kubevirt.io/kubevirt/pkg/cloud-init"
 	"kubevirt.io/kubevirt/pkg/controller"
-	"kubevirt.io/kubevirt/pkg/feature-gates"
-	"kubevirt.io/kubevirt/pkg/host-disk"
+	hostdisk "kubevirt.io/kubevirt/pkg/host-disk"
 	"kubevirt.io/kubevirt/pkg/kubecli"
 	"kubevirt.io/kubevirt/pkg/log"
 	"kubevirt.io/kubevirt/pkg/precond"
-	"kubevirt.io/kubevirt/pkg/virt-handler/cmd-client"
-	"kubevirt.io/kubevirt/pkg/virt-handler/device-manager"
+	pvcutils "kubevirt.io/kubevirt/pkg/util/types"
+	virtconfig "kubevirt.io/kubevirt/pkg/virt-config"
+	cmdclient "kubevirt.io/kubevirt/pkg/virt-handler/cmd-client"
+	device_manager "kubevirt.io/kubevirt/pkg/virt-handler/device-manager"
 	"kubevirt.io/kubevirt/pkg/virt-handler/isolation"
-	"kubevirt.io/kubevirt/pkg/virt-handler/migration-proxy"
-	"kubevirt.io/kubevirt/pkg/virt-launcher"
+	migrationproxy "kubevirt.io/kubevirt/pkg/virt-handler/migration-proxy"
+	virtlauncher "kubevirt.io/kubevirt/pkg/virt-launcher"
 	"kubevirt.io/kubevirt/pkg/virt-launcher/virtwrap/api"
 	"kubevirt.io/kubevirt/pkg/watchdog"
 )
@@ -229,6 +231,7 @@ func domainMigrated(domain *api.Domain) bool {
 }
 
 func (d *VirtualMachineController) updateVMIStatus(vmi *v1.VirtualMachineInstance, domain *api.Domain, syncError error) (err error) {
+	condManager := controller.NewVirtualMachineInstanceConditionManager()
 
 	// Don't update the VirtualMachineInstance if it is already in a final state
 	if vmi.IsFinal() {
@@ -237,6 +240,82 @@ func (d *VirtualMachineController) updateVMIStatus(vmi *v1.VirtualMachineInstanc
 
 	oldStatus := vmi.DeepCopy().Status
 
+	if domain != nil {
+		// This is needed to be backwards compatible with vmi's which have status interfaces
+		// with the name not being set
+		if len(domain.Spec.Devices.Interfaces) == 0 && len(vmi.Status.Interfaces) == 1 && vmi.Status.Interfaces[0].Name == "" {
+			for _, network := range vmi.Spec.Networks {
+				if network.NetworkSource.Pod != nil {
+					vmi.Status.Interfaces[0].Name = network.Name
+				}
+			}
+		}
+
+		if len(domain.Spec.Devices.Interfaces) > 0 || len(domain.Status.Interfaces) > 0 {
+			// This calculates the vmi.Status.Interfaces based on the following data sets:
+			// - vmi.Status.Interfaces - previously calculated interfaces, this can contains data
+			//   set in the controller (pod IP) which can not be deleted, unless overridden by Qemu agent
+			// - domain.Spec - interfaces form the Spec
+			// - domain.Status.Interfaces - interfaces reported by guest agent (emtpy if Qemu agent not running)
+			newInterfaces := []v1.VirtualMachineInstanceNetworkInterface{}
+
+			existingInterfaceStatusByName := map[string]v1.VirtualMachineInstanceNetworkInterface{}
+			for _, existingInterfaceStatus := range vmi.Status.Interfaces {
+				if existingInterfaceStatus.Name != "" {
+					existingInterfaceStatusByName[existingInterfaceStatus.Name] = existingInterfaceStatus
+				}
+			}
+
+			domainInterfaceStatusByMac := map[string]api.InterfaceStatus{}
+			for _, domainInterfaceStatus := range domain.Status.Interfaces {
+				domainInterfaceStatusByMac[domainInterfaceStatus.Mac] = domainInterfaceStatus
+			}
+
+			// Iterate through all domain.Spec interfaces
+			for _, domainInterface := range domain.Spec.Devices.Interfaces {
+				interfaceMAC := domainInterface.MAC.MAC
+				var newInterface v1.VirtualMachineInstanceNetworkInterface
+
+				if existingInterface, exists := existingInterfaceStatusByName[domainInterface.Alias.Name]; exists {
+					// Reuse previously calculated interface from vmi.Status.Interfaces, updating the MAC from domain.Spec
+					// Only interfaces defined in domain.Spec are handled here
+					newInterface = existingInterface
+					newInterface.MAC = interfaceMAC
+				} else {
+					// If not present in vmi.Status.Interfaces, create a new one based on domain.Spec
+					newInterface = v1.VirtualMachineInstanceNetworkInterface{
+						MAC:  interfaceMAC,
+						Name: domainInterface.Alias.Name,
+					}
+				}
+
+				// Update IP info based on information from domain.Status.Interfaces (Qemu guest)
+				// Remove the interface from domainInterfaceStatusByMac to mark it as handled
+				if interfaceStatus, exists := domainInterfaceStatusByMac[interfaceMAC]; exists {
+					newInterface.IP = interfaceStatus.Ip
+					newInterface.IPs = interfaceStatus.IPs
+					newInterface.InterfaceName = interfaceStatus.InterfaceName
+					delete(domainInterfaceStatusByMac, interfaceMAC)
+				}
+				newInterfaces = append(newInterfaces, newInterface)
+			}
+
+			// If any of domain.Status.Interfaces were not handled above, it means that the vm contains additional
+			// interfaces not defined in domain.Spec (most likely added by user on VM). Add them to vmi.Status.Interfaces
+			for interfaceMAC, domainInterfaceStatus := range domainInterfaceStatusByMac {
+				newInterface := v1.VirtualMachineInstanceNetworkInterface{
+					Name:          domainInterfaceStatus.Name,
+					MAC:           interfaceMAC,
+					IP:            domainInterfaceStatus.Ip,
+					IPs:           domainInterfaceStatus.IPs,
+					InterfaceName: domainInterfaceStatus.InterfaceName,
+				}
+				newInterfaces = append(newInterfaces, newInterface)
+			}
+			vmi.Status.Interfaces = newInterfaces
+		}
+	}
+
 	// Only update the VMI's phase if this node owns the VMI.
 	if vmi.Status.NodeName != "" && vmi.Status.NodeName != d.host {
 		// not owned by this host, likely the result of a migration
@@ -244,7 +323,7 @@ func (d *VirtualMachineController) updateVMIStatus(vmi *v1.VirtualMachineInstanc
 	}
 
 	// Update migration progress if domain reports anything in the migration metadata.
-	if domain != nil && domain.Spec.Metadata.KubeVirt.Migration != nil && vmi.Status.MigrationState != nil {
+	if domain != nil && domain.Spec.Metadata.KubeVirt.Migration != nil && vmi.Status.MigrationState != nil && d.isMigrationSource(vmi) {
 		migrationMetadata := domain.Spec.Metadata.KubeVirt.Migration
 		if migrationMetadata.UID == vmi.Status.MigrationState.MigrationUID {
 
@@ -336,7 +415,57 @@ func (d *VirtualMachineController) updateVMIStatus(vmi *v1.VirtualMachineInstanc
 		return err
 	}
 
-	controller.NewVirtualMachineInstanceConditionManager().CheckFailure(vmi, syncError, "Synchronizing with the Domain failed.")
+	// Cacluate whether the VM is migratable
+	if !condManager.HasCondition(vmi, v1.VirtualMachineInstanceIsMigratable) {
+		isBlockMigration, err := d.checkVolumesForMigration(vmi)
+		liveMigrationCondition := v1.VirtualMachineInstanceCondition{
+			Type:   v1.VirtualMachineInstanceIsMigratable,
+			Status: k8sv1.ConditionTrue,
+		}
+		if err != nil {
+			liveMigrationCondition.Status = k8sv1.ConditionFalse
+			liveMigrationCondition.Message = err.Error()
+			liveMigrationCondition.Reason = v1.VirtualMachineInstanceReasonDisksNotMigratable
+		}
+		vmi.Status.Conditions = append(vmi.Status.Conditions, liveMigrationCondition)
+
+		// Set VMI Migration Method
+		if isBlockMigration {
+			vmi.Status.MigrationMethod = v1.BlockMigration
+		} else {
+			vmi.Status.MigrationMethod = v1.LiveMigration
+		}
+	}
+
+	// Update the condition when GA is connected
+	channelConnected := false
+	if domain != nil {
+		for _, channel := range domain.Spec.Devices.Channels {
+			if channel.Target != nil {
+				log.Log.V(4).Infof("Channel: %s, %s", channel.Target.Name, channel.Target.State)
+				if channel.Target.Name == "org.qemu.guest_agent.0" {
+					if channel.Target.State == "connected" {
+						channelConnected = true
+					}
+				}
+
+			}
+		}
+	}
+
+	switch {
+	case channelConnected && !condManager.HasCondition(vmi, v1.VirtualMachineInstanceAgentConnected):
+		agentCondition := v1.VirtualMachineInstanceCondition{
+			Type:          v1.VirtualMachineInstanceAgentConnected,
+			LastProbeTime: v12.Now(),
+			Status:        k8sv1.ConditionTrue,
+		}
+		vmi.Status.Conditions = append(vmi.Status.Conditions, agentCondition)
+	case !channelConnected:
+		condManager.RemoveCondition(vmi, v1.VirtualMachineInstanceAgentConnected)
+	}
+
+	condManager.CheckFailure(vmi, syncError, "Synchronizing with the Domain failed.")
 
 	if !reflect.DeepEqual(oldStatus, vmi.Status) {
 		_, err = d.clientset.VirtualMachineInstance(vmi.ObjectMeta.Namespace).Update(vmi)
@@ -770,7 +899,6 @@ func (d *VirtualMachineController) execute(key string) error {
 			vmi.UID = types.UID(uid)
 		}
 	}
-
 	if vmiExists && domainExists && domain.Spec.Metadata.KubeVirt.UID != vmi.UID {
 		oldVMI := v1.NewVMIReferenceFromNameWithNS(vmi.Namespace, vmi.Name)
 		oldVMI.UID = domain.Spec.Metadata.KubeVirt.UID
@@ -1060,6 +1188,52 @@ func (d *VirtualMachineController) isPreMigrationTarget(vmi *v1.VirtualMachineIn
 	return false
 }
 
+func (d *VirtualMachineController) checkVolumesForMigration(vmi *v1.VirtualMachineInstance) (blockMigrate bool, err error) {
+	// Check if all VMI volumes can be shared between the source and the destination
+	// of a live migration. blockMigrate will be returned as false, only if all volumes
+	// are shared and the VMI has no local disks
+	// Some combinations of disks makes the VMI no suitable for live migration.
+	// A relevant error will be returned in this case.
+	sharedVol := false
+	for _, volume := range vmi.Spec.Volumes {
+		volSrc := volume.VolumeSource
+		if volSrc.PersistentVolumeClaim != nil {
+			sharedVol = true
+			_, shared, err := pvcutils.IsSharedPVCFromClient(d.clientset, vmi.Namespace, volSrc.PersistentVolumeClaim.ClaimName)
+			if errors.IsNotFound(err) {
+				return blockMigrate, fmt.Errorf("persistentvolumeclaim %v not found", volSrc.PersistentVolumeClaim.ClaimName)
+			} else if err != nil {
+				return blockMigrate, err
+			}
+			blockMigrate = blockMigrate || !shared
+			if !shared {
+				return blockMigrate, fmt.Errorf("cannot migrate VMI with non-shared PVCs")
+			}
+		} else if volSrc.HostDisk != nil {
+			shared := false
+			if volSrc.HostDisk.Shared != nil {
+				shared = *volSrc.HostDisk.Shared
+			}
+			blockMigrate = blockMigrate || !shared
+			if !shared {
+				return blockMigrate, fmt.Errorf("cannot migrate VMI with non-shared HostDisk")
+			}
+			sharedVol = true
+		} else if volSrc.CloudInitNoCloud != nil ||
+			volSrc.ConfigMap != nil || volSrc.ServiceAccount != nil ||
+			volSrc.Secret != nil {
+			continue
+		} else {
+			blockMigrate = true
+		}
+	}
+	if sharedVol && blockMigrate {
+		err = fmt.Errorf("cannot migrate VMI with mixed shared and non-shared volumes")
+		return
+	}
+	return
+}
+
 func (d *VirtualMachineController) isMigrationSource(vmi *v1.VirtualMachineInstance) bool {
 
 	if vmi.Status.MigrationState != nil &&
@@ -1110,7 +1284,6 @@ func (d *VirtualMachineController) handleMigrationProxy(vmi *v1.VirtualMachineIn
 }
 
 func (d *VirtualMachineController) processVmUpdate(origVMI *v1.VirtualMachineInstance) error {
-
 	vmi := origVMI.DeepCopy()
 
 	isExpired, err := watchdog.WatchdogFileIsExpired(d.watchdogTimeoutSeconds, d.virtShareDir, vmi)
@@ -1302,8 +1475,8 @@ func (d *VirtualMachineController) heartBeat(interval time.Duration, stopCh chan
 			log.DefaultLogger().V(4).Infof("Heartbeat sent")
 			// Label the node if cpu manager is running on it
 			// This is a temporary workaround until k8s bug #66525 is resolved
-			featuregates.ParseFeatureGatesFromConfigMap()
-			if featuregates.CPUManagerEnabled() {
+			virtconfig.Init()
+			if virtconfig.CPUManagerEnabled() {
 				d.updateNodeCpuManagerLabel()
 			}
 		}, interval, 1.2, true, stopCh)

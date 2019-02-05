@@ -18,11 +18,14 @@ package framework
 
 import (
 	"bytes"
+	"fmt"
 	"io"
 	"net/url"
 	"strings"
 
+	"github.com/onsi/ginkgo"
 	"github.com/onsi/gomega"
+
 	"k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes/scheme"
@@ -92,25 +95,34 @@ func (f *Framework) ExecCommandInContainerWithFullOutput(namespace, podName, con
 }
 
 // ExecCommandInContainer executes a command in the specified container.
-func (f *Framework) ExecCommandInContainer(namespace, podName, containerName string, cmd ...string) string {
+func (f *Framework) ExecCommandInContainer(namespace, podName, containerName string, cmd ...string) (string, error) {
 	stdout, _, err := f.ExecCommandInContainerWithFullOutput(namespace, podName, containerName, cmd...)
-	gomega.Expect(err).NotTo(gomega.HaveOccurred(),
-		"failed to execute command in pod %v, container %v: %v",
-		podName, containerName, err)
-	return stdout
+	if err != nil {
+		fmt.Fprintf(ginkgo.GinkgoWriter, "[WARN] error executing command %q, error: %s\n", cmd, err.Error())
+		return "", err
+	}
+	return stdout, nil
 }
 
 // ExecShellInContainer provides a function to execute a shell cmd for the specified running container in a pod
-func (f *Framework) ExecShellInContainer(podName, containerName string, cmd string) string {
-	return f.ExecCommandInContainer(podName, containerName, "/bin/sh", "-c", cmd)
+func (f *Framework) ExecShellInContainer(podName, containerName string, cmd string) (string, error) {
+	str, err := f.ExecCommandInContainer(podName, containerName, "/bin/sh", "-c", cmd)
+	if err != nil {
+		return "", err
+	}
+	return str, nil
 }
 
 // ExecCommandInPod provides a function to execute a command on a running pod
-func (f *Framework) ExecCommandInPod(podName, namespace string, cmd ...string) string {
+func (f *Framework) ExecCommandInPod(podName, namespace string, cmd ...string) (string, error) {
 	pod, err := f.K8sClient.CoreV1().Pods(namespace).Get(podName, metav1.GetOptions{})
 	gomega.Expect(err).NotTo(gomega.HaveOccurred(), "failed to get pod")
 	gomega.Expect(pod.Spec.Containers).NotTo(gomega.BeEmpty())
-	return f.ExecCommandInContainer(namespace, podName, pod.Spec.Containers[0].Name, cmd...)
+	str, err := f.ExecCommandInContainer(namespace, podName, pod.Spec.Containers[0].Name, cmd...)
+	if err != nil {
+		return "", err
+	}
+	return str, nil
 }
 
 // ExecCommandInPodWithFullOutput provides a function to execute a command in a running pod and to capture its output
@@ -122,8 +134,12 @@ func (f *Framework) ExecCommandInPodWithFullOutput(namespace, podName string, cm
 }
 
 // ExecShellInPod provides a function to execute a shell cmd in the specified pod
-func (f *Framework) ExecShellInPod(podName, namespace string, cmd string) string {
-	return f.ExecCommandInPod(podName, namespace, "/bin/sh", "-c", cmd)
+func (f *Framework) ExecShellInPod(podName, namespace string, cmd string) (string, error) {
+	str, err := f.ExecCommandInPod(podName, namespace, "/bin/sh", "-c", cmd)
+	if err != nil {
+		return "", err
+	}
+	return str, nil
 }
 
 // ExecShellInPodWithFullOutput provides a function to execute a shell cmd in a running pod and to capture its output

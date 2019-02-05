@@ -20,7 +20,6 @@ package validating
 
 import (
 	"encoding/json"
-	"fmt"
 	"net/http"
 
 	"k8s.io/api/admission/v1beta1"
@@ -31,6 +30,8 @@ import (
 	templatev1 "github.com/openshift/api/template/v1"
 
 	k6tv1 "kubevirt.io/kubevirt/pkg/api/v1"
+
+	"github.com/davecgh/go-spew/spew"
 
 	"github.com/fromanirh/kubevirt-template-validator/pkg/webhooks"
 
@@ -48,9 +49,13 @@ func validateVirtualMachineFromTemplate(field *k8sfield.Path, newVM *k6tv1.Virtu
 }
 
 func admitVMTemplate(ar *v1beta1.AdmissionReview) *v1beta1.AdmissionResponse {
-	newVM, oldVM, err := getAdmissionReviewVM(ar)
+	newVM, oldVM, err := webhooks.GetAdmissionReviewVM(ar)
 	if err != nil {
 		return webhooks.ToAdmissionResponseError(err)
+	}
+
+	if resp := webhooks.ValidateSchema(k6tv1.VirtualMachineGroupVersionKind, ar.Request.Object.Raw); resp != nil {
+		return resp
 	}
 
 	informers := webhooks.GetInformers()
@@ -61,19 +66,24 @@ func admitVMTemplate(ar *v1beta1.AdmissionReview) *v1beta1.AdmissionResponse {
 	}
 
 	if !exists {
-		return webhooks.ToAdmissionResponseError(fmt.Errorf("the VMI %s does not exist under the cache", ""))
+		// VM doesn't originate from a template. Totally fine and expected.
+		return webhooks.ToAdmissionResponseOK()
 	}
 	tmplObj := obj.(*templatev1.Template)
 	tmpl := tmplObj.DeepCopy()
+
+	if IsDumpModeEnabled() {
+		log.Log.Infof("admission newVM:\n%s", spew.Sdump(newVM))
+		log.Log.Infof("admission oldVM:\n%s", spew.Sdump(newVM))
+		log.Log.Infof("admission tmpl:\n%s", spew.Sdump(tmpl))
+	}
 
 	causes := validateVirtualMachineFromTemplate(nil, newVM, oldVM, tmpl)
 	if len(causes) > 0 {
 		return webhooks.ToAdmissionResponse(causes)
 	}
 
-	reviewResponse := v1beta1.AdmissionResponse{}
-	reviewResponse.Allowed = true
-	return &reviewResponse
+	return webhooks.ToAdmissionResponseOK()
 }
 
 func ServeVMTemplateCreate(resp http.ResponseWriter, req *http.Request) {
@@ -93,7 +103,16 @@ func serve(resp http.ResponseWriter, req *http.Request, admit admitFunc) {
 		return
 	}
 
+	if IsDumpModeEnabled() {
+		log.Log.Infof("admission review:\n%s", spew.Sdump(review))
+	}
+
 	reviewResponse := admit(review)
+
+	if IsDumpModeEnabled() {
+		log.Log.Infof("admission review response:\n%s", spew.Sdump(reviewResponse))
+	}
+
 	if reviewResponse != nil {
 		response.Response = reviewResponse
 		response.Response.UID = review.Request.UID
@@ -114,27 +133,4 @@ func serve(resp http.ResponseWriter, req *http.Request, admit admitFunc) {
 		return
 	}
 	resp.WriteHeader(http.StatusOK)
-}
-
-func getAdmissionReviewVM(ar *v1beta1.AdmissionReview) (*k6tv1.VirtualMachine, *k6tv1.VirtualMachine, error) {
-	var err error
-	raw := ar.Request.Object.Raw
-	newVM := k6tv1.VirtualMachine{}
-
-	err = json.Unmarshal(raw, &newVM)
-	if err != nil {
-		return nil, nil, err
-	}
-
-	if ar.Request.Operation == v1beta1.Update {
-		raw := ar.Request.OldObject.Raw
-		oldVM := k6tv1.VirtualMachine{}
-		err = json.Unmarshal(raw, &oldVM)
-		if err != nil {
-			return nil, nil, err
-		}
-		return &newVM, &oldVM, nil
-	}
-
-	return &newVM, nil, nil
 }

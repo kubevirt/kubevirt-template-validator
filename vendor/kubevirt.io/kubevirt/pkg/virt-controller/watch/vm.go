@@ -28,7 +28,7 @@ import (
 
 	"github.com/pborman/uuid"
 	k8score "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/apis/meta/v1"
+	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/rand"
 	"k8s.io/apimachinery/pkg/util/wait"
@@ -36,7 +36,7 @@ import (
 	"k8s.io/client-go/tools/record"
 	"k8s.io/client-go/util/workqueue"
 
-	cdiv1 "kubevirt.io/containerized-data-importer/pkg/apis/datavolumecontroller/v1alpha1"
+	cdiv1 "kubevirt.io/containerized-data-importer/pkg/apis/core/v1alpha1"
 	virtv1 "kubevirt.io/kubevirt/pkg/api/v1"
 	"kubevirt.io/kubevirt/pkg/controller"
 	"kubevirt.io/kubevirt/pkg/kubecli"
@@ -330,7 +330,6 @@ func createDataVolumeManifest(dataVolume *cdiv1.DataVolume, vm *virtv1.VirtualMa
 	annotations := map[string]string{}
 
 	labels[virtv1.CreatedByLabel] = string(vm.UID)
-	annotations[virtv1.OwnedByAnnotation] = "virt-controller"
 
 	for k, v := range dataVolume.Labels {
 		annotations[k] = v
@@ -341,15 +340,9 @@ func createDataVolumeManifest(dataVolume *cdiv1.DataVolume, vm *virtv1.VirtualMa
 	newDataVolume.ObjectMeta.Labels = labels
 	newDataVolume.ObjectMeta.Annotations = annotations
 
-	tr := true
-	newDataVolume.ObjectMeta.OwnerReferences = []v1.OwnerReference{{
-		APIVersion:         virtv1.VirtualMachineGroupVersionKind.GroupVersion().String(),
-		Kind:               virtv1.VirtualMachineGroupVersionKind.Kind,
-		Name:               vm.Name,
-		UID:                vm.UID,
-		Controller:         &tr,
-		BlockOwnerDeletion: &tr,
-	}}
+	newDataVolume.ObjectMeta.OwnerReferences = []v1.OwnerReference{
+		*v1.NewControllerRef(vm, virtv1.VirtualMachineGroupVersionKind),
+	}
 	return newDataVolume
 }
 
@@ -404,6 +397,9 @@ func (c *VMController) handleDataVolumes(vm *virtv1.VirtualMachine, dataVolumes 
 				if deleteAfterTimestamp == 0 {
 					dataVolumeCopy := curDataVolume.DeepCopy()
 					deleteAfterTimestamp := now + int64(rand.Intn(dataVolumeDeleteJitterSeconds)+10)
+					if dataVolumeCopy.Annotations == nil {
+						dataVolumeCopy.Annotations = map[string]string{}
+					}
 					dataVolumeCopy.Annotations[dataVolumeDeleteAfterTimestampAnno] = strconv.FormatInt(deleteAfterTimestamp, 10)
 					_, err := c.clientset.CdiClient().CdiV1alpha1().DataVolumes(dataVolumeCopy.Namespace).Update(dataVolumeCopy)
 					if err != nil {
@@ -535,17 +531,11 @@ func (c *VMController) setupVMIFromVM(vm *virtv1.VirtualMachine) *virtv1.Virtual
 
 	setupStableFirmwareUUID(vm, vmi)
 
-	t := true
 	// TODO check if vmi labels exist, and when make sure that they match. For now just override them
 	vmi.ObjectMeta.Labels = vm.Spec.Template.ObjectMeta.Labels
-	vmi.ObjectMeta.OwnerReferences = []v1.OwnerReference{{
-		APIVersion:         virtv1.VirtualMachineGroupVersionKind.GroupVersion().String(),
-		Kind:               virtv1.VirtualMachineGroupVersionKind.Kind,
-		Name:               vm.ObjectMeta.Name,
-		UID:                vm.ObjectMeta.UID,
-		Controller:         &t,
-		BlockOwnerDeletion: &t,
-	}}
+	vmi.ObjectMeta.OwnerReferences = []v1.OwnerReference{
+		*v1.NewControllerRef(vm, virtv1.VirtualMachineGroupVersionKind),
+	}
 
 	return vmi
 }
@@ -587,7 +577,7 @@ func (c *VMController) filterActiveVMIs(vmis []*virtv1.VirtualMachineInstance) [
 // TODO +pkotas unify with replicaset this code is the same
 func (c *VMController) filterReadyVMIs(vmis []*virtv1.VirtualMachineInstance) []*virtv1.VirtualMachineInstance {
 	return filter(vmis, func(vmi *virtv1.VirtualMachineInstance) bool {
-		return vmi.IsReady()
+		return controller.NewVirtualMachineInstanceConditionManager().HasConditionWithStatus(vmi, virtv1.VirtualMachineInstanceConditionType(k8score.PodReady), k8score.ConditionTrue)
 	})
 }
 
@@ -653,7 +643,7 @@ func (c *VMController) addVirtualMachine(obj interface{}) {
 	}
 
 	// If it has a ControllerRef, that's all that matters.
-	if controllerRef := controller.GetControllerOf(vmi); controllerRef != nil {
+	if controllerRef := v1.GetControllerOf(vmi); controllerRef != nil {
 		log.Log.Object(vmi).V(4).Info("Looking for VirtualMachineInstance Ref")
 		vm := c.resolveControllerRef(vmi.Namespace, controllerRef)
 		if vm == nil {
@@ -712,8 +702,8 @@ func (c *VMController) updateVirtualMachine(old, cur interface{}) {
 		return
 	}
 
-	curControllerRef := controller.GetControllerOf(curVMI)
-	oldControllerRef := controller.GetControllerOf(oldVMI)
+	curControllerRef := v1.GetControllerOf(curVMI)
+	oldControllerRef := v1.GetControllerOf(oldVMI)
 	controllerRefChanged := !reflect.DeepEqual(curControllerRef, oldControllerRef)
 	if controllerRefChanged && oldControllerRef != nil {
 		// The ControllerRef was changed. Sync the old controller, if any.
@@ -771,7 +761,7 @@ func (c *VMController) deleteVirtualMachine(obj interface{}) {
 		}
 	}
 
-	controllerRef := controller.GetControllerOf(vmi)
+	controllerRef := v1.GetControllerOf(vmi)
 	if controllerRef == nil {
 		// No controller should care about orphans being deleted.
 		return
@@ -794,7 +784,7 @@ func (c *VMController) addDataVolume(obj interface{}) {
 		c.deleteDataVolume(dataVolume)
 		return
 	}
-	controllerRef := controller.GetControllerOf(dataVolume)
+	controllerRef := v1.GetControllerOf(dataVolume)
 	if controllerRef == nil {
 		return
 	}
@@ -834,8 +824,8 @@ func (c *VMController) updateDataVolume(old, cur interface{}) {
 		}
 		return
 	}
-	curControllerRef := controller.GetControllerOf(curDataVolume)
-	oldControllerRef := controller.GetControllerOf(oldDataVolume)
+	curControllerRef := v1.GetControllerOf(curDataVolume)
+	oldControllerRef := v1.GetControllerOf(oldDataVolume)
 	controllerRefChanged := !reflect.DeepEqual(curControllerRef, oldControllerRef)
 	if controllerRefChanged && oldControllerRef != nil {
 		// The ControllerRef was changed. Sync the old controller, if any.
@@ -872,7 +862,7 @@ func (c *VMController) deleteDataVolume(obj interface{}) {
 			return
 		}
 	}
-	controllerRef := controller.GetControllerOf(dataVolume)
+	controllerRef := v1.GetControllerOf(dataVolume)
 	if controllerRef == nil {
 		// No controller should care about orphans being deleted.
 		return
@@ -940,7 +930,7 @@ func (c *VMController) updateStatus(vm *virtv1.VirtualMachine, vmi *virtv1.Virtu
 
 	ready := false
 	if created {
-		ready = vmi.IsReady()
+		ready = controller.NewVirtualMachineInstanceConditionManager().HasConditionWithStatus(vmi, virtv1.VirtualMachineInstanceConditionType(k8score.PodReady), k8score.ConditionTrue)
 	}
 	readyMatch := ready == vm.Status.Ready
 

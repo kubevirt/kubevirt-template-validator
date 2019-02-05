@@ -10,11 +10,12 @@ import (
 
 	"github.com/golang/glog"
 	"github.com/pkg/errors"
-	"k8s.io/api/core/v1"
+	v1 "k8s.io/api/core/v1"
 	apierrs "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/serializer"
+	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/kubernetes/scheme"
@@ -24,11 +25,11 @@ import (
 	cdiClientset "kubevirt.io/containerized-data-importer/pkg/client/clientset/versioned"
 	"kubevirt.io/containerized-data-importer/pkg/common"
 	"kubevirt.io/containerized-data-importer/tests/utils"
-	"kubevirt.io/qe-tools/pkg/ginkgo-reporters"
+	ginkgo_reporters "kubevirt.io/qe-tools/pkg/ginkgo-reporters"
 )
 
 const (
-	nsCreateTime = 30 * time.Second
+	nsCreateTime = 60 * time.Second
 	nsDeleteTime = 5 * time.Minute
 	//NsPrefixLabel provides a cdi prefix label to identify the test namespace
 	NsPrefixLabel = "cdi-e2e"
@@ -101,7 +102,7 @@ func init() {
 	fmt.Fprintf(ginkgo.GinkgoWriter, "Making sure junit flag is available %v\n", ginkgo_reporters.JunitOutput)
 	kubectlPath = flag.String("kubectl-path", "kubectl", "The path to the kubectl binary")
 	ocPath = flag.String("oc-path", "oc", "The path to the oc binary")
-	cdiInstallNs = flag.String("cdi-namespace", "kube-system", "The namespace of the CDI controller")
+	cdiInstallNs = flag.String("cdi-namespace", "cdi", "The namespace of the CDI controller")
 	kubeConfig = flag.String("kubeconfig", "/var/run/kubernetes/admin.kubeconfig", "The absolute path to the kubeconfig file")
 	master = flag.String("master", "", "master url:port")
 	goCLIPath = flag.String("gocli-path", "cli.sh", "The path to cli script")
@@ -297,4 +298,35 @@ func GetKubeClientFromRESTConfig(config *rest.Config) (*kubernetes.Clientset, er
 	config.APIPath = "/apis"
 	config.ContentType = runtime.ContentTypeJSON
 	return kubernetes.NewForConfig(config)
+}
+
+// CreatePrometheusServiceInNs creates a service for prometheus in the specified namespace. This
+// allows us to test for prometheus end points using the service to connect to the endpoints.
+func (f *Framework) CreatePrometheusServiceInNs(namespace string) (*v1.Service, error) {
+	service := &v1.Service{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "kubevirt-prometheus-metrics",
+			Namespace: namespace,
+			Labels: map[string]string{
+				"prometheus.kubevirt.io": "",
+				"kubevirt.io":            "",
+			},
+		},
+		Spec: v1.ServiceSpec{
+			Ports: []v1.ServicePort{
+				{
+					Name: "metrics",
+					Port: 443,
+					TargetPort: intstr.IntOrString{
+						StrVal: "metrics",
+					},
+					Protocol: v1.ProtocolTCP,
+				},
+			},
+			Selector: map[string]string{
+				"prometheus.kubevirt.io": "",
+			},
+		},
+	}
+	return f.K8sClient.CoreV1().Services(namespace).Create(service)
 }

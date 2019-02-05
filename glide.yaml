@@ -20,8 +20,24 @@ import:
   version: 1.0.1
 - package: kubevirt.io/kubevirt
   repo: https://github.com/kubevirt/kubevirt.git
-  version: ~0.9
+  version: 0.13.3
 - package: kubevirt.io/containerized-data-importer
   repo: https://github.com/kubevirt/containerized-data-importer.git
 - package: github.com/gorilla/websocket
   version: 0647012449a1878977514a346b26637dd022446c
+- package: github.com/go-openapi/spec
+  version: v0.17.0
+- package: github.com/go-openapi/validate
+  version: v0.17.0
+- package: github.com/go-openapi/errors
+  version: v0.17.0
+- package: github.com/go-openapi/analysis
+  version: v0.17.0
+- package: github.com/go-openapi/strfmt
+  version: v0.17.0
+- package: github.com/go-openapi/loads
+  version: v0.17.0
+- package: github.com/go-openapi/runtime
+  version: v0.17.0
+- package: github.com/davecgh/go-spew
+  version: 1.1.1

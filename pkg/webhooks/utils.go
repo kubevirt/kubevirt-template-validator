@@ -27,15 +27,21 @@ import (
 
 	"k8s.io/api/admission/v1beta1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/client-go/tools/cache"
 
+	k6tv1 "kubevirt.io/kubevirt/pkg/api/v1"
 	"kubevirt.io/kubevirt/pkg/kubecli"
+	"kubevirt.io/kubevirt/pkg/util/openapi"
+	"kubevirt.io/kubevirt/pkg/virt-api/rest"
 
 	"github.com/fromanirh/kubevirt-template-validator/pkg/virtinformers"
 
 	"github.com/fromanirh/kubevirt-template-validator/internal/pkg/k8sutils"
 	"github.com/fromanirh/kubevirt-template-validator/internal/pkg/log"
 )
+
+var Validator = openapi.CreateOpenAPIValidator(rest.ComposeAPIDefinitions())
 
 var webhookInformers *Informers
 var once sync.Once
@@ -95,6 +101,12 @@ func GetAdmissionReview(r *http.Request) (*v1beta1.AdmissionReview, error) {
 	return ar, err
 }
 
+func ToAdmissionResponseOK() *v1beta1.AdmissionResponse {
+	reviewResponse := v1beta1.AdmissionResponse{}
+	reviewResponse.Allowed = true
+	return &reviewResponse
+}
+
 // ToAdmissionResponseError
 func ToAdmissionResponseError(err error) *v1beta1.AdmissionResponse {
 	log.Log.Errorf("admission generic error: %v", err)
@@ -141,4 +153,45 @@ func ValidationErrorsToAdmissionResponse(errs []error) *v1beta1.AdmissionRespons
 		)
 	}
 	return ToAdmissionResponse(causes)
+}
+
+func ValidateSchema(gvk schema.GroupVersionKind, data []byte) *v1beta1.AdmissionResponse {
+	in := map[string]interface{}{}
+	err := json.Unmarshal(data, &in)
+	if err != nil {
+		return ToAdmissionResponseError(err)
+	}
+	errs := Validator.Validate(gvk, in)
+	if len(errs) > 0 {
+		return ValidationErrorsToAdmissionResponse(errs)
+	}
+	return nil
+}
+
+func GetAdmissionReviewVM(ar *v1beta1.AdmissionReview) (*k6tv1.VirtualMachine, *k6tv1.VirtualMachine, error) {
+
+	if ar.Request.Resource.Resource != "template" {
+		return nil, nil, fmt.Errorf("expect resource %v to be '%s'", ar.Request.Resource, "template")
+	}
+
+	var err error
+	raw := ar.Request.Object.Raw
+	newVM := k6tv1.VirtualMachine{}
+
+	err = json.Unmarshal(raw, &newVM)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	if ar.Request.Operation == v1beta1.Update {
+		raw := ar.Request.OldObject.Raw
+		oldVM := k6tv1.VirtualMachine{}
+		err = json.Unmarshal(raw, &oldVM)
+		if err != nil {
+			return nil, nil, err
+		}
+		return &newVM, &oldVM, nil
+	}
+
+	return &newVM, nil, nil
 }

@@ -23,64 +23,19 @@ import (
 	"fmt"
 	"io/ioutil"
 	"net/http"
-	"sync"
 
 	"k8s.io/api/admission/v1beta1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
-	"k8s.io/client-go/tools/cache"
 
 	k6tv1 "kubevirt.io/kubevirt/pkg/api/v1"
-	"kubevirt.io/kubevirt/pkg/kubecli"
 	"kubevirt.io/kubevirt/pkg/util/openapi"
-	"kubevirt.io/kubevirt/pkg/virt-api/rest"
+	k6trest "kubevirt.io/kubevirt/pkg/virt-api/rest"
 
-	"github.com/fromanirh/kubevirt-template-validator/pkg/virtinformers"
-
-	"github.com/fromanirh/kubevirt-template-validator/internal/pkg/k8sutils"
 	"github.com/fromanirh/kubevirt-template-validator/internal/pkg/log"
 )
 
-var Validator = openapi.CreateOpenAPIValidator(rest.ComposeAPIDefinitions())
-
-var webhookInformers *Informers
-var once sync.Once
-
-type Informers struct {
-	TemplateInformer       cache.SharedIndexInformer
-	VirtualMachineInformer cache.SharedIndexInformer
-}
-
-func GetInformers() *Informers {
-	once.Do(func() {
-		webhookInformers = newInformers()
-	})
-	return webhookInformers
-}
-
-// SetInformers created for unittest usage only
-func SetInformers(informers *Informers) {
-	once.Do(func() {
-		webhookInformers = informers
-	})
-}
-
-func newInformers() *Informers {
-	kubeClient, err := kubecli.GetKubevirtClient()
-	if err != nil {
-		log.Log.Errorf("Error creating kubeclient: %v", err)
-		return nil
-	}
-	namespace, err := k8sutils.GetNamespace()
-	if err != nil {
-		log.Log.Errorf("Error searching for namespace: %v", err)
-		return nil
-	}
-	kubeInformerFactory := virtinformers.NewKubeInformerFactory(kubeClient.RestClient(), namespace)
-	return &Informers{
-		TemplateInformer: kubeInformerFactory.Template(),
-	}
-}
+var Validator = openapi.CreateOpenAPIValidator(k6trest.ComposeAPIDefinitions())
 
 // GetAdmissionReview
 func GetAdmissionReview(r *http.Request) (*v1beta1.AdmissionReview, error) {

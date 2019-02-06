@@ -29,7 +29,6 @@ import (
 	"github.com/fromanirh/kubevirt-template-validator/internal/pkg/log"
 	"github.com/fromanirh/kubevirt-template-validator/internal/pkg/service"
 
-	//	"github.com/fromanirh/kubevirt-template-validator/pkg/webhooks"
 	"github.com/fromanirh/kubevirt-template-validator/pkg/webhooks/validating"
 )
 
@@ -66,21 +65,6 @@ func (app *App) Run() {
 	validating.SetDumpMode(app.DumpMode)
 
 	log.Log.Infof("webhook App: running with TLSInfo%+v", app.TLSInfo)
-	// Run informers for webhooks usage
-	//	webhookInformers := webhooks.GetInformers()
-	//
-	//	stopChan := make(chan struct{}, 1)
-	//	defer close(stopChan)
-	//	go webhookInformers.TemplateInformer.Run(stopChan)
-	//
-	//	log.Log.Infof("webhook App: started informers")
-	//
-	//	cache.WaitForCacheSync(
-	//		stopChan,
-	//		webhookInformers.TemplateInformer.HasSynced,
-	//	)
-	//
-	//	log.Log.Infof("webhook App: synched informers")
 
 	http.HandleFunc(validating.VMTemplateValidatePath, func(w http.ResponseWriter, r *http.Request) {
 		validating.ServeVMTemplateValidate(w, r)

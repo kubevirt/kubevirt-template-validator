@@ -57,24 +57,9 @@ func admitVMTemplate(ar *v1beta1.AdmissionReview) *v1beta1.AdmissionResponse {
 		return resp
 	}
 
-	//	informers := webhooks.GetInformers()
-	//	cacheKey := "" // fmt.Sprintf("%s/%s", migration.Namespace, migration.Spec.VMIName)
-	//	obj, exists, err := informers.VirtualMachineInformer.GetStore().GetByKey(cacheKey)
-	//	if err != nil {
-	//		return webhooks.ToAdmissionResponseError(err)
-	//	}
-
-	//	if !exists {
-	//		// VM doesn't originate from a template. Totally fine and expected.
-	//		return webhooks.ToAdmissionResponseOK()
-	//	}
-	//	tmplObj := obj.(*templatev1.Template)
-	//	tmpl := tmplObj.DeepCopy()
-
 	if IsDumpModeEnabled() {
 		log.Log.Infof("admission newVM:\n%s", spew.Sdump(newVM))
 		log.Log.Infof("admission oldVM:\n%s", spew.Sdump(oldVM))
-		//		log.Log.Infof("admission tmpl:\n%s", spew.Sdump(tmpl))
 	}
 
 	causes := validateVirtualMachineFromTemplate(nil, newVM, oldVM, nil) //	tmpl)

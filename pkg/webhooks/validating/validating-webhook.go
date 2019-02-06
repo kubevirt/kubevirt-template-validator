@@ -38,8 +38,7 @@ import (
 	"github.com/fromanirh/kubevirt-template-validator/internal/pkg/log"
 )
 
-const VMTemplateCreateValidatePath string = "/virtualmachine-template-validate-create"
-const VMTemplateUpdateValidatePath string = "/virtualmachine-template-validate-update"
+const VMTemplateValidatePath string = "/virtualmachine-template-validate"
 
 type admitFunc func(*v1beta1.AdmissionReview) *v1beta1.AdmissionResponse
 
@@ -58,27 +57,27 @@ func admitVMTemplate(ar *v1beta1.AdmissionReview) *v1beta1.AdmissionResponse {
 		return resp
 	}
 
-	informers := webhooks.GetInformers()
-	cacheKey := "" // fmt.Sprintf("%s/%s", migration.Namespace, migration.Spec.VMIName)
-	obj, exists, err := informers.VirtualMachineInformer.GetStore().GetByKey(cacheKey)
-	if err != nil {
-		return webhooks.ToAdmissionResponseError(err)
-	}
+	//	informers := webhooks.GetInformers()
+	//	cacheKey := "" // fmt.Sprintf("%s/%s", migration.Namespace, migration.Spec.VMIName)
+	//	obj, exists, err := informers.VirtualMachineInformer.GetStore().GetByKey(cacheKey)
+	//	if err != nil {
+	//		return webhooks.ToAdmissionResponseError(err)
+	//	}
 
-	if !exists {
-		// VM doesn't originate from a template. Totally fine and expected.
-		return webhooks.ToAdmissionResponseOK()
-	}
-	tmplObj := obj.(*templatev1.Template)
-	tmpl := tmplObj.DeepCopy()
+	//	if !exists {
+	//		// VM doesn't originate from a template. Totally fine and expected.
+	//		return webhooks.ToAdmissionResponseOK()
+	//	}
+	//	tmplObj := obj.(*templatev1.Template)
+	//	tmpl := tmplObj.DeepCopy()
 
 	if IsDumpModeEnabled() {
 		log.Log.Infof("admission newVM:\n%s", spew.Sdump(newVM))
-		log.Log.Infof("admission oldVM:\n%s", spew.Sdump(newVM))
-		log.Log.Infof("admission tmpl:\n%s", spew.Sdump(tmpl))
+		log.Log.Infof("admission oldVM:\n%s", spew.Sdump(oldVM))
+		//		log.Log.Infof("admission tmpl:\n%s", spew.Sdump(tmpl))
 	}
 
-	causes := validateVirtualMachineFromTemplate(nil, newVM, oldVM, tmpl)
+	causes := validateVirtualMachineFromTemplate(nil, newVM, oldVM, nil) //	tmpl)
 	if len(causes) > 0 {
 		return webhooks.ToAdmissionResponse(causes)
 	}
@@ -86,11 +85,7 @@ func admitVMTemplate(ar *v1beta1.AdmissionReview) *v1beta1.AdmissionResponse {
 	return webhooks.ToAdmissionResponseOK()
 }
 
-func ServeVMTemplateCreate(resp http.ResponseWriter, req *http.Request) {
-	serve(resp, req, admitVMTemplate)
-}
-
-func ServeVMTemplateUpdate(resp http.ResponseWriter, req *http.Request) {
+func ServeVMTemplateValidate(resp http.ResponseWriter, req *http.Request) {
 	serve(resp, req, admitVMTemplate)
 }
 

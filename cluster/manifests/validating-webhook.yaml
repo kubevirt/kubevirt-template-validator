@@ -2,19 +2,18 @@
 apiVersion: admissionregistration.k8s.io/v1beta1
 kind: ValidatingWebhookConfiguration
 metadata:
-  name: vmtemplate-admission
+  name: virtualmachine-template-validator
 webhooks:
-  - name: vmtemplate-admission.kubevirt.io
+  - name: virtualmachine-template-admission.kubevirt.io
     clientConfig:
       service:
-        name: vmtemplate-admission
+        name: virtualmachine-template-validator
         namespace: kubevirt
-        path: "/"
+        path: "/virtualmachine-template-validate"
       caBundle: ${CA_BUNDLE}
     rules:
       - operations: ["CREATE","UPDATE"]
         apiGroups: ["kubevirt.io"]
         apiVersions: ["v1alpha3"]
         resources: ["virtualmachines"]
-    failurePolicy: Ignore
-
+    failurePolicy: Fail

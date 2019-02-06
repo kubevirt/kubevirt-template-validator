@@ -21,52 +21,75 @@ package validator
 import (
 	"net/http"
 
-	"k8s.io/client-go/tools/cache"
+	flag "github.com/spf13/pflag"
+
+	//	"k8s.io/client-go/tools/cache"
 
 	"github.com/fromanirh/kubevirt-template-validator/internal/pkg/k8sutils"
 	"github.com/fromanirh/kubevirt-template-validator/internal/pkg/log"
+	"github.com/fromanirh/kubevirt-template-validator/internal/pkg/service"
 
-	"github.com/fromanirh/kubevirt-template-validator/pkg/webhooks"
+	//	"github.com/fromanirh/kubevirt-template-validator/pkg/webhooks"
 	"github.com/fromanirh/kubevirt-template-validator/pkg/webhooks/validating"
 )
 
+const (
+	defaultPort = 8443
+	defaultHost = "0.0.0.0"
+)
+
 type App struct {
-	ListenAddress string
-	TLSInfo       *k8sutils.TLSInfo
+	service.ServiceListen
+	TLSInfo  *k8sutils.TLSInfo
+	DumpMode bool
 }
 
-func (app *App) Run() error {
-	if app.TLSInfo == nil {
-		app.TLSInfo = &k8sutils.TLSInfo{}
-	}
+var _ service.Service = &App{}
 
-	log.Log.Infof("webhook App: running with TLSInfo %#v", app.TLSInfo)
+func (app *App) AddFlags() {
+	app.InitFlags()
+
+	app.BindAddress = defaultHost
+	app.Port = defaultPort
+
+	app.AddCommonFlags()
+
+	flag.StringVarP(&app.TLSInfo.CertFilePath, "cert-file", "c", "", "override path to TLS certificate - you need also the key to enable TLS")
+	flag.StringVarP(&app.TLSInfo.KeyFilePath, "key-file", "k", "", "override path to TLS key - you need also the cert to enable TLS")
+	flag.BoolVarP(&app.DumpMode, "dump", "D", false, "dump data involved in the admission control")
+}
+
+func (app *App) Run() {
+	app.TLSInfo.UpdateFromK8S()
+	defer app.TLSInfo.Clean()
+
+	validating.SetDumpMode(app.DumpMode)
+
+	log.Log.Infof("webhook App: running with TLSInfo%+v", app.TLSInfo)
 	// Run informers for webhooks usage
-	webhookInformers := webhooks.GetInformers()
+	//	webhookInformers := webhooks.GetInformers()
+	//
+	//	stopChan := make(chan struct{}, 1)
+	//	defer close(stopChan)
+	//	go webhookInformers.TemplateInformer.Run(stopChan)
+	//
+	//	log.Log.Infof("webhook App: started informers")
+	//
+	//	cache.WaitForCacheSync(
+	//		stopChan,
+	//		webhookInformers.TemplateInformer.HasSynced,
+	//	)
+	//
+	//	log.Log.Infof("webhook App: synched informers")
 
-	stopChan := make(chan struct{}, 1)
-	defer close(stopChan)
-	go webhookInformers.TemplateInformer.Run(stopChan)
-
-	log.Log.Infof("webhook App: started informers")
-
-	cache.WaitForCacheSync(
-		stopChan,
-		webhookInformers.TemplateInformer.HasSynced,
-	)
-
-	log.Log.Infof("webhook App: synched informers")
-
-	http.HandleFunc(validating.VMTemplateCreateValidatePath, func(w http.ResponseWriter, r *http.Request) {
-		validating.ServeVMTemplateCreate(w, r)
+	http.HandleFunc(validating.VMTemplateValidatePath, func(w http.ResponseWriter, r *http.Request) {
+		validating.ServeVMTemplateValidate(w, r)
 	})
-	http.HandleFunc(validating.VMTemplateUpdateValidatePath, func(w http.ResponseWriter, r *http.Request) {
-		validating.ServeVMTemplateUpdate(w, r)
-	})
-	if !app.TLSInfo.IsEnabled() {
+	if app.TLSInfo.IsEnabled() {
+		log.Log.Infof("webhook App: TLS configured, serving over HTTPS")
+		http.ListenAndServeTLS(app.Address(), app.TLSInfo.CertFilePath, app.TLSInfo.KeyFilePath, nil)
+	} else {
 		log.Log.Infof("webhook App: TLS *NOT* configured, serving over HTTP")
-		return http.ListenAndServe(app.ListenAddress, nil)
+		http.ListenAndServe(app.Address(), nil)
 	}
-	log.Log.Infof("webhook App: TLS configured, serving over HTTPS")
-	return http.ListenAndServeTLS(app.ListenAddress, app.TLSInfo.CertFilePath, app.TLSInfo.KeyFilePath, nil)
 }

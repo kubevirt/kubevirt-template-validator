@@ -2,37 +2,37 @@
 apiVersion: v1
 kind: Service
 metadata:
-  name: vmtemplate-admission
+  name: virtualmachine-template-validator
   namespace: kubevirt
   labels:
-    name: vmtemplate-admission
+    kubevirt.io: virtualmachine-template-validator
 spec:
   ports:
   - name: webhook
     port: 443
-    targetPort: 8080
+    targetPort: 8443
   selector:
-    name: vmtemplate-admission
+    kubevirt.io: virtualmachine-template-validator
 ---
 apiVersion: apps/v1beta1
 kind: Deployment
 metadata:
-  name: vmtemplate-admission
+  name: virtualmachine-template-validator
   namespace: kubevirt
   labels:
-    name: vmtemplate-admission
+    name: virtualmachine-template-validator
 spec:
   replicas: 1
   template:
     metadata:
-      name: vmtemplate-admission 
+      name: virtualmachine-template-validator 
       labels:
-        name: vmtemplate-admission
+        kubevirt.io: virtualmachine-template-validator
     spec:
       containers:
         - name: webhook
-          image: vmtemplate-admission:latest
-          imagePullPolicy: Never
+          image: fromanirh/kubevirt-template-validator:devel
+          imagePullPolicy: Always
           resources:
             limits:
               memory: 50Mi
@@ -40,14 +40,23 @@ spec:
             requests:
               memory: 50Mi
               cpu: 300m
+          args:
+            - --port=8443
+            - --cert-file=/etc/webhook/certs/cert.pem
+            - --key-file=/etc/webhook/certs/key.pem
+            - --dump
           volumeMounts:
-            - name: webhook-certs
+            - name: virtualmachine-template-validator-certs
               mountPath: /etc/webhook/certs
               readOnly: true
           securityContext:
             readOnlyRootFilesystem: true
+          ports:
+          - name: webhook
+            containerPort: 8443
+            protocol: TCP
       volumes:
-        - name: webhook-certs
+        - name: virtualmachine-template-validator-certs
           secret:
-            secretName: vmtemplate-admission-certs
+            secretName: virtualmachine-template-validator-certs
 

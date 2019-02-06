@@ -19,45 +19,24 @@
 package main
 
 import (
-	"fmt"
 	"os"
 
-	flag "github.com/spf13/pflag"
+	_ "github.com/fromanirh/okdutil/okd"
 
 	"github.com/fromanirh/kubevirt-template-validator/internal/pkg/k8sutils"
 	"github.com/fromanirh/kubevirt-template-validator/internal/pkg/log"
+	"github.com/fromanirh/kubevirt-template-validator/internal/pkg/service"
 	"github.com/fromanirh/kubevirt-template-validator/pkg/validator"
-	"github.com/fromanirh/kubevirt-template-validator/pkg/webhooks/validating"
-	_ "github.com/fromanirh/okdutil/okd"
 )
 
 func Main() int {
-	log.Log = log.Logger("kubevirt-template-validator")
-
 	tlsInfo := &k8sutils.TLSInfo{}
-	addr := flag.StringP("addr", "L", "", "address on which the server is listening to")
-	port := flag.StringP("port", "P", "19999", "port on which the server is listening to")
-	flag.StringVarP(&tlsInfo.CertFilePath, "cert-file", "c", "", "override path to TLS certificate - you need also the key to enable TLS")
-	flag.StringVarP(&tlsInfo.KeyFilePath, "key-file", "k", "", "override path to TLS key - you need also the cert to enable TLS")
-	dumpMode := flag.BoolP("dump", "D", false, "dump data involved in the admission control")
-	flag.Parse()
-
-	listenAddress := fmt.Sprintf("%s:%s", *addr, *port)
-
-	log.Log.Infof("kubevirt-template-validator started on %v", listenAddress)
-	defer log.Log.Infof("kubevirt-template-validator stopped")
-
-	tlsInfo.UpdateFromK8S()
-	defer tlsInfo.Clean()
-
-	validating.SetDumpMode(*dumpMode)
-
-	app := validator.App{
-		ListenAddress: listenAddress,
-		TLSInfo:       tlsInfo,
+	app := &validator.App{
+		TLSInfo: tlsInfo,
 	}
+	service.Setup(app)
+	log.InitializeLogging("kubevirt-template-validator")
 	app.Run()
-
 	return 0
 }
 

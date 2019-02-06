@@ -68,7 +68,8 @@ func SetInformers(informers *Informers) {
 func newInformers() *Informers {
 	kubeClient, err := kubecli.GetKubevirtClient()
 	if err != nil {
-		panic(err)
+		log.Log.Errorf("Error creating kubeclient: %v", err)
+		return nil
 	}
 	namespace, err := k8sutils.GetNamespace()
 	if err != nil {
@@ -170,8 +171,8 @@ func ValidateSchema(gvk schema.GroupVersionKind, data []byte) *v1beta1.Admission
 
 func GetAdmissionReviewVM(ar *v1beta1.AdmissionReview) (*k6tv1.VirtualMachine, *k6tv1.VirtualMachine, error) {
 
-	if ar.Request.Resource.Resource != "template" {
-		return nil, nil, fmt.Errorf("expect resource %v to be '%s'", ar.Request.Resource, "template")
+	if ar.Request.Resource.Resource != "virtualmachines" {
+		return nil, nil, fmt.Errorf("expect resource %v to be '%s'", ar.Request.Resource, "virtualmachines")
 	}
 
 	var err error

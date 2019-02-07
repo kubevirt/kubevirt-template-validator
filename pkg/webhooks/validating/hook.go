@@ -40,13 +40,68 @@ import (
 	"github.com/fromanirh/kubevirt-template-validator/internal/pkg/log"
 )
 
-const VMTemplateValidatePath string = "/virtualmachine-template-validate"
+const (
+	VMTemplateValidatePath string = "/virtualmachine-template-validate"
+
+	annotationTemplateNameKey      string = "vm.cnv.io/template"
+	annotationTemplateNamespaceKey string = "vm.cnv.io/template-namespace"
+)
 
 type admitFunc func(*v1beta1.AdmissionReview) *v1beta1.AdmissionResponse
 
 func validateVirtualMachineFromTemplate(field *k8sfield.Path, newVM *k6tv1.VirtualMachine, oldVM *k6tv1.VirtualMachine, tmpl *templatev1.Template) []metav1.StatusCause {
 	var causes []metav1.StatusCause
 	return causes
+}
+
+func getTemplateKey(vm *k6tv1.VirtualMachine) (string, bool) {
+	if vm.Annotations == nil {
+		log.Log.Warningf("VM %s missing annotations entirely", vm.Name)
+		return "", false
+	}
+
+	templateNamespace := vm.Annotations[annotationTemplateNamespaceKey]
+	if templateNamespace == "" {
+		log.Log.Warningf("VM %s missing template namespace annotation", vm.Name)
+		return "", false
+	}
+
+	templateName := vm.Annotations[annotationTemplateNameKey]
+	if templateNamespace == "" {
+		log.Log.Warningf("VM %s missing template annotation", vm.Name)
+		return "", false
+	}
+
+	return fmt.Sprintf("%s/%s", templateNamespace, templateName), true
+}
+
+func getParentTemplateForVM(vm *k6tv1.VirtualMachine) (*templatev1.Template, error) {
+	informers := virtinformers.GetInformers()
+
+	if informers == nil || informers.TemplateInformer == nil {
+		// no error, it can happen: we're been deployed ok K8S, not OKD/OCD.
+		return nil, nil
+	}
+
+	cacheKey, ok := getTemplateKey(vm)
+	if !ok {
+		// baked VM (aka no parent template). May happen, it's OK.
+		return nil, nil
+	}
+
+	obj, exists, err := informers.TemplateInformer.GetStore().GetByKey(cacheKey)
+	if err != nil {
+		return nil, err
+	}
+
+	if !exists {
+		// ok, this is weird
+		return nil, fmt.Errorf("unable to find template object %s for VM %s", cacheKey, vm.Name)
+	}
+
+	tmpl := obj.(*templatev1.Template)
+	// TODO explain deepcopy
+	return tmpl.DeepCopy(), nil
 }
 
 func admitVMTemplate(ar *v1beta1.AdmissionReview) *v1beta1.AdmissionResponse {
@@ -59,18 +114,9 @@ func admitVMTemplate(ar *v1beta1.AdmissionReview) *v1beta1.AdmissionResponse {
 		return resp
 	}
 
-	var templ *templatev1.Template
-	if informers := virtinformers.GetInformers(); informers != nil && informers.TemplateInformer != nil {
-		cacheKey := fmt.Sprintf("%s/%s", "kubevirt", "rhel7-generic-large") // TODO
-		obj, exists, err := informers.TemplateInformer.GetStore().GetByKey(cacheKey)
-		if err != nil {
-			return webhooks.ToAdmissionResponseError(err)
-		}
-
-		if exists {
-			tmpl := obj.(*templatev1.Template)
-			templ = tmpl.DeepCopy()
-		}
+	templ, err := getParentTemplateForVM(newVM)
+	if err != nil {
+		return webhooks.ToAdmissionResponseError(err)
 	}
 	if templ == nil {
 		// no template resources (kubevirt deployed on kubernetes, not OKD/OCP) or

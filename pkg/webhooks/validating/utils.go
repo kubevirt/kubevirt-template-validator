@@ -25,6 +25,7 @@ import (
 
 	k6tv1 "kubevirt.io/kubevirt/pkg/api/v1"
 
+	"github.com/fromanirh/kubevirt-template-validator/pkg/validation"
 	"github.com/fromanirh/kubevirt-template-validator/pkg/virtinformers"
 
 	"github.com/fromanirh/kubevirt-template-validator/internal/pkg/log"
@@ -33,6 +34,7 @@ import (
 const (
 	annotationTemplateNameKey      string = "vm.cnv.io/template"
 	annotationTemplateNamespaceKey string = "vm.cnv.io/template-namespace"
+	annotationValidationKey        string = "validations"
 )
 
 func getTemplateKey(vm *k6tv1.VirtualMachine) (string, bool) {
@@ -83,4 +85,18 @@ func getParentTemplateForVM(vm *k6tv1.VirtualMachine) (*templatev1.Template, err
 	tmpl := obj.(*templatev1.Template)
 	// TODO explain deepcopy
 	return tmpl.DeepCopy(), nil
+}
+
+func getValidationRulesFromTemplate(tmpl *templatev1.Template) ([]validation.Rule, error) {
+	return validation.ParseRules([]byte(tmpl.Annotations[annotationValidationKey]))
+}
+
+func getValidationRulesForVM(vm *k6tv1.VirtualMachine) ([]validation.Rule, error) {
+	tmpl, err := getParentTemplateForVM(vm)
+	if err != nil {
+		// no template resources (kubevirt deployed on kubernetes, not OKD/OCP) or
+		// no parent template for this VM. In either case, we have nothing to do.
+		return []validation.Rule{}, err
+	}
+	return getValidationRulesFromTemplate(tmpl)
 }

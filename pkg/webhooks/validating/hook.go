@@ -54,23 +54,18 @@ func admitVMTemplate(ar *v1beta1.AdmissionReview) *v1beta1.AdmissionResponse {
 		return resp
 	}
 
-	templ, err := getParentTemplateForVM(newVM)
+	rules, err := getValidationRulesForVM(newVM)
 	if err != nil {
 		return webhooks.ToAdmissionResponseError(err)
-	}
-	if templ == nil {
-		// no template resources (kubevirt deployed on kubernetes, not OKD/OCP) or
-		// no parent template for this VM. In either case, we have nothing to do.
-		return webhooks.ToAdmissionResponseOK()
 	}
 
 	if IsDumpModeEnabled() {
 		log.Log.Infof("admission newVM:\n%s", spew.Sdump(newVM))
 		log.Log.Infof("admission oldVM:\n%s", spew.Sdump(oldVM))
-		log.Log.Infof("admission Templ:\n%s", spew.Sdump(templ))
+		log.Log.Infof("admission rules:\n%s", spew.Sdump(rules))
 	}
 
-	causes := validateVirtualMachineFromTemplate(nil, newVM, oldVM, templ)
+	causes := ValidateVirtualMachine(nil, newVM, oldVM, rules)
 	if len(causes) > 0 {
 		return webhooks.ToAdmissionResponse(causes)
 	}

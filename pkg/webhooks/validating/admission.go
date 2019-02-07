@@ -22,13 +22,17 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	k8sfield "k8s.io/apimachinery/pkg/util/validation/field"
 
-	templatev1 "github.com/openshift/api/template/v1"
-
 	k6tv1 "kubevirt.io/kubevirt/pkg/api/v1"
+
+	"github.com/fromanirh/kubevirt-template-validator/pkg/validation"
 	//	"github.com/fromanirh/kubevirt-template-validator/internal/pkg/log"
 )
 
-func validateVirtualMachineFromTemplate(field *k8sfield.Path, newVM *k6tv1.VirtualMachine, oldVM *k6tv1.VirtualMachine, tmpl *templatev1.Template) []metav1.StatusCause {
+func ValidateVirtualMachine(field *k8sfield.Path, newVM *k6tv1.VirtualMachine, oldVM *k6tv1.VirtualMachine, rules []validation.Rule) []metav1.StatusCause {
 	var causes []metav1.StatusCause
+	if len(rules) == 0 {
+		// no rules! everything is permitted, so let's bail out quickly
+		return causes
+	}
 	return causes
 }

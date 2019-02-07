@@ -20,21 +20,15 @@ package validating
 
 import (
 	"encoding/json"
-	"fmt"
 	"net/http"
 
 	"k8s.io/api/admission/v1beta1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
-	k8sfield "k8s.io/apimachinery/pkg/util/validation/field"
-
-	templatev1 "github.com/openshift/api/template/v1"
 
 	k6tv1 "kubevirt.io/kubevirt/pkg/api/v1"
 
 	"github.com/davecgh/go-spew/spew"
 
-	"github.com/fromanirh/kubevirt-template-validator/pkg/virtinformers"
 	"github.com/fromanirh/kubevirt-template-validator/pkg/webhooks"
 
 	"github.com/fromanirh/kubevirt-template-validator/internal/pkg/log"
@@ -42,67 +36,13 @@ import (
 
 const (
 	VMTemplateValidatePath string = "/virtualmachine-template-validate"
-
-	annotationTemplateNameKey      string = "vm.cnv.io/template"
-	annotationTemplateNamespaceKey string = "vm.cnv.io/template-namespace"
 )
 
+func ServeVMTemplateValidate(resp http.ResponseWriter, req *http.Request) {
+	serve(resp, req, admitVMTemplate)
+}
+
 type admitFunc func(*v1beta1.AdmissionReview) *v1beta1.AdmissionResponse
-
-func validateVirtualMachineFromTemplate(field *k8sfield.Path, newVM *k6tv1.VirtualMachine, oldVM *k6tv1.VirtualMachine, tmpl *templatev1.Template) []metav1.StatusCause {
-	var causes []metav1.StatusCause
-	return causes
-}
-
-func getTemplateKey(vm *k6tv1.VirtualMachine) (string, bool) {
-	if vm.Annotations == nil {
-		log.Log.Warningf("VM %s missing annotations entirely", vm.Name)
-		return "", false
-	}
-
-	templateNamespace := vm.Annotations[annotationTemplateNamespaceKey]
-	if templateNamespace == "" {
-		log.Log.Warningf("VM %s missing template namespace annotation", vm.Name)
-		return "", false
-	}
-
-	templateName := vm.Annotations[annotationTemplateNameKey]
-	if templateNamespace == "" {
-		log.Log.Warningf("VM %s missing template annotation", vm.Name)
-		return "", false
-	}
-
-	return fmt.Sprintf("%s/%s", templateNamespace, templateName), true
-}
-
-func getParentTemplateForVM(vm *k6tv1.VirtualMachine) (*templatev1.Template, error) {
-	informers := virtinformers.GetInformers()
-
-	if informers == nil || informers.TemplateInformer == nil {
-		// no error, it can happen: we're been deployed ok K8S, not OKD/OCD.
-		return nil, nil
-	}
-
-	cacheKey, ok := getTemplateKey(vm)
-	if !ok {
-		// baked VM (aka no parent template). May happen, it's OK.
-		return nil, nil
-	}
-
-	obj, exists, err := informers.TemplateInformer.GetStore().GetByKey(cacheKey)
-	if err != nil {
-		return nil, err
-	}
-
-	if !exists {
-		// ok, this is weird
-		return nil, fmt.Errorf("unable to find template object %s for VM %s", cacheKey, vm.Name)
-	}
-
-	tmpl := obj.(*templatev1.Template)
-	// TODO explain deepcopy
-	return tmpl.DeepCopy(), nil
-}
 
 func admitVMTemplate(ar *v1beta1.AdmissionReview) *v1beta1.AdmissionResponse {
 	newVM, oldVM, err := webhooks.GetAdmissionReviewVM(ar)
@@ -136,10 +76,6 @@ func admitVMTemplate(ar *v1beta1.AdmissionReview) *v1beta1.AdmissionResponse {
 	}
 
 	return webhooks.ToAdmissionResponseOK()
-}
-
-func ServeVMTemplateValidate(resp http.ResponseWriter, req *http.Request) {
-	serve(resp, req, admitVMTemplate)
 }
 
 func serve(resp http.ResponseWriter, req *http.Request, admit admitFunc) {

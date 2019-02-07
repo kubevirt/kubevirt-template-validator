@@ -42,6 +42,13 @@ cat ./cluster/manifests/validating-webhook.yaml | ./cluster/extract-ca.sh | kube
 
 Done!
 
+### Disable the webhook
+
+To disable the webhook, just de-register it from the apiserver:
+```bash
+kubectl delete -f ./cluister/manifests/validating-webhook.yaml
+```
+
 ## Caveats & Gotchas
 
 content pending

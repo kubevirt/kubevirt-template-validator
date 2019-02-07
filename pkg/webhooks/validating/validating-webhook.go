@@ -59,18 +59,24 @@ func admitVMTemplate(ar *v1beta1.AdmissionReview) *v1beta1.AdmissionResponse {
 		return resp
 	}
 
-	informers := virtinformers.GetInformers()
-	cacheKey := fmt.Sprintf("%s/%s", "kubevirt", "rhel7-generic-large")
-	obj, exists, err := informers.TemplateInformer.GetStore().GetByKey(cacheKey)
-	if err != nil {
-		return webhooks.ToAdmissionResponseError(err)
-	}
+	var templ *templatev1.Template
+	if informers := virtinformers.GetInformers(); informers != nil && informers.TemplateInformer != nil {
+		cacheKey := fmt.Sprintf("%s/%s", "kubevirt", "rhel7-generic-large") // TODO
+		obj, exists, err := informers.TemplateInformer.GetStore().GetByKey(cacheKey)
+		if err != nil {
+			return webhooks.ToAdmissionResponseError(err)
+		}
 
-	if !exists {
-		return webhooks.ToAdmissionResponseError(fmt.Errorf("the VMI %s does not exist under the cache", "XXX"))
+		if exists {
+			tmpl := obj.(*templatev1.Template)
+			templ = tmpl.DeepCopy()
+		}
 	}
-	tmpl := obj.(*templatev1.Template)
-	templ := tmpl.DeepCopy()
+	if templ == nil {
+		// no template resources (kubevirt deployed on kubernetes, not OKD/OCP) or
+		// no parent template for this VM. In either case, we have nothing to do.
+		return webhooks.ToAdmissionResponseOK()
+	}
 
 	if IsDumpModeEnabled() {
 		log.Log.Infof("admission newVM:\n%s", spew.Sdump(newVM))
@@ -78,7 +84,7 @@ func admitVMTemplate(ar *v1beta1.AdmissionReview) *v1beta1.AdmissionResponse {
 		log.Log.Infof("admission Templ:\n%s", spew.Sdump(templ))
 	}
 
-	causes := validateVirtualMachineFromTemplate(nil, newVM, oldVM, nil) //	tmpl)
+	causes := validateVirtualMachineFromTemplate(nil, newVM, oldVM, templ)
 	if len(causes) > 0 {
 		return webhooks.ToAdmissionResponse(causes)
 	}

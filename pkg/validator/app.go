@@ -19,12 +19,10 @@
 package validator
 
 import (
-	"fmt"
 	"net/http"
 
 	flag "github.com/spf13/pflag"
 
-	templatev1 "github.com/openshift/api/template/v1"
 	"k8s.io/client-go/tools/cache"
 
 	"github.com/fromanirh/kubevirt-template-validator/internal/pkg/k8sutils"
@@ -69,26 +67,30 @@ func (app *App) Run() {
 	stopChan := make(chan struct{}, 1)
 	defer close(stopChan)
 
-	go informers.TemplateInformer.Run(stopChan)
-	log.Log.Infof("webhook App: started informers")
-	cache.WaitForCacheSync(
-		stopChan,
-		informers.TemplateInformer.HasSynced,
-	)
-	log.Log.Infof("webhook App: synched informers")
+	if informers.TemplateInformer == nil {
+		log.Log.Infof("validator app: no template informer available")
+	} else {
+		go informers.TemplateInformer.Run(stopChan)
+		log.Log.Infof("validator app: started informers")
+		cache.WaitForCacheSync(
+			stopChan,
+			informers.TemplateInformer.HasSynced,
+		)
+		log.Log.Infof("validator app: synched informers")
+	}
 
 	validating.SetDumpMode(app.DumpMode)
 
-	log.Log.Infof("webhook App: running with TLSInfo%+v", app.TLSInfo)
+	log.Log.Infof("validator app: running with TLSInfo%+v", app.TLSInfo)
 
 	http.HandleFunc(validating.VMTemplateValidatePath, func(w http.ResponseWriter, r *http.Request) {
 		validating.ServeVMTemplateValidate(w, r)
 	})
 	if app.TLSInfo.IsEnabled() {
-		log.Log.Infof("webhook App: TLS configured, serving over HTTPS on %s", app.Address())
+		log.Log.Infof("validator app: TLS configured, serving over HTTPS on %s", app.Address())
 		http.ListenAndServeTLS(app.Address(), app.TLSInfo.CertFilePath, app.TLSInfo.KeyFilePath, nil)
 	} else {
-		log.Log.Infof("webhook App: TLS *NOT* configured, serving over HTTP on %s", app.Address())
+		log.Log.Infof("validator app: TLS *NOT* configured, serving over HTTP on %s", app.Address())
 		http.ListenAndServe(app.Address(), nil)
 	}
 }

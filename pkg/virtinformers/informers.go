@@ -30,6 +30,7 @@ import (
 	templatev1client "github.com/openshift/client-go/template/clientset/versioned/typed/template/v1"
 
 	k8sv1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/fields"
 
 	"kubevirt.io/kubevirt/pkg/kubecli"
@@ -38,7 +39,7 @@ import (
 )
 
 var once sync.Once
-var webhookInformers *Informers
+var pkgInformers *Informers
 
 type Informers struct {
 	TemplateInformer cache.SharedIndexInformer
@@ -46,15 +47,15 @@ type Informers struct {
 
 func GetInformers() *Informers {
 	once.Do(func() {
-		webhookInformers = newInformers()
+		pkgInformers = newInformers()
 	})
-	return webhookInformers
+	return pkgInformers
 }
 
 // SetInformers created for unittest usage only
 func SetInformers(informers *Informers) {
 	once.Do(func() {
-		webhookInformers = informers
+		pkgInformers = informers
 	})
 }
 
@@ -133,10 +134,18 @@ func (f *kubeInformerFactory) Template() cache.SharedIndexInformer {
 	return f.getInformer("templateInformer", func() cache.SharedIndexInformer {
 		tmplclient, err := templatev1client.NewForConfig(f.restConfig)
 		if err != nil {
-			panic(err)
+			log.Log.Errorf("error creating the template client: %v", err)
+			return nil
 		}
+
+		_, err = tmplclient.Templates(k8sv1.NamespaceAll).List(metav1.ListOptions{Limit: 1})
+		if err != nil {
+			log.Log.Errorf("error probing the template resource: %v", err)
+			return nil
+		}
+
 		lw := cache.NewListWatchFromClient(tmplclient.RESTClient(), "templates", k8sv1.NamespaceAll, fields.Everything())
-		return cache.NewSharedIndexInformer(lw, &templatev1.Template{}, 4*time.Hour, cache.Indexers{})
+		return cache.NewSharedIndexInformer(lw, &templatev1.Template{}, f.defaultResync, cache.Indexers{})
 	})
 }
 

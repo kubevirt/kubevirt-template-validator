@@ -20,6 +20,7 @@ package validating
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 
 	"k8s.io/api/admission/v1beta1"
@@ -33,6 +34,7 @@ import (
 
 	"github.com/davecgh/go-spew/spew"
 
+	"github.com/fromanirh/kubevirt-template-validator/pkg/virtinformers"
 	"github.com/fromanirh/kubevirt-template-validator/pkg/webhooks"
 
 	"github.com/fromanirh/kubevirt-template-validator/internal/pkg/log"
@@ -57,9 +59,23 @@ func admitVMTemplate(ar *v1beta1.AdmissionReview) *v1beta1.AdmissionResponse {
 		return resp
 	}
 
+	informers := virtinformers.GetInformers()
+	cacheKey := fmt.Sprintf("%s/%s", "kubevirt", "rhel7-generic-large")
+	obj, exists, err := informers.TemplateInformer.GetStore().GetByKey(cacheKey)
+	if err != nil {
+		return webhooks.ToAdmissionResponseError(err)
+	}
+
+	if !exists {
+		return webhooks.ToAdmissionResponseError(fmt.Errorf("the VMI %s does not exist under the cache", "XXX"))
+	}
+	tmpl := obj.(*templatev1.Template)
+	templ := tmpl.DeepCopy()
+
 	if IsDumpModeEnabled() {
 		log.Log.Infof("admission newVM:\n%s", spew.Sdump(newVM))
 		log.Log.Infof("admission oldVM:\n%s", spew.Sdump(oldVM))
+		log.Log.Infof("admission Templ:\n%s", spew.Sdump(templ))
 	}
 
 	causes := validateVirtualMachineFromTemplate(nil, newVM, oldVM, nil) //	tmpl)

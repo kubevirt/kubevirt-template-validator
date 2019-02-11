@@ -114,7 +114,12 @@ func Evaluate(vm *k6tv1.VirtualMachine, rules []Rule) Result {
 			continue
 		}
 
-		result.SetRuleStatus(ra.GetRef(), ra.Apply(vm))
+		satisfied, err := ra.Apply(vm)
+		if err != nil {
+			result.SetRuleError(r, err)
+			continue
+		}
+		result.SetRuleStatus(r, satisfied)
 	}
 
 	return result

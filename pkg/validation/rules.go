@@ -21,8 +21,6 @@ package validation
 import (
 	"encoding/json"
 
-	"k8s.io/client-go/util/jsonpath"
-
 	k6tv1 "kubevirt.io/kubevirt/pkg/api/v1"
 )
 
@@ -63,13 +61,11 @@ func (r *Rule) IsAppliableOn(vm *k6tv1.VirtualMachine) (bool, error) {
 		// nothing to check against, so it is OK
 		return true, nil
 	}
-	jp := jsonpath.New("valid")
-	err := jp.Parse(r.Valid)
+	p, err := Find(vm, r.Valid)
 	if err != nil {
 		return false, err
 	}
-	// TODO
-	return true, nil
+	return p.Len() > 0, nil
 }
 
 func ParseRules(data []byte) ([]Rule, error) {

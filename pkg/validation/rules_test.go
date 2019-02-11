@@ -33,5 +33,28 @@ var _ = Describe("Rules", func() {
 			Expect(err).To(Not(HaveOccurred()))
 			Expect(len(rules)).To(Equal(1))
 		})
+
+		It("Should parse multiple rules", func() {
+			text := `[{
+            "name": "core-limits",
+            "valid": "spec.domain.cpu.cores",
+            "path": "spec.domain.cpu.cores",
+            "rule": "integer",
+            "message": "cpu cores must be limited",
+            "min": 1,
+            "max": 8
+	  }, {
+            "name": "supported-bus",
+            "path": "spec.devices.disks[*].type",
+            "rule": "enum",
+            "message": "the disk bus type must be one of the supported values",
+            "values": ["virtio", "scsi"]
+          }]`
+			rules, err := validation.ParseRules([]byte(text))
+
+			Expect(err).To(Not(HaveOccurred()))
+			Expect(len(rules)).To(Equal(2))
+		})
+
 	})
 })

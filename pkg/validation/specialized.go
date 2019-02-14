@@ -20,9 +20,14 @@ package validation
 
 import (
 	"fmt"
+	"regexp"
 	"strings"
 
 	k6tv1 "kubevirt.io/kubevirt/pkg/api/v1"
+)
+
+const (
+	JSONPathPrefix string = "jsonpath::"
 )
 
 type RuleApplier interface {
@@ -30,7 +35,7 @@ type RuleApplier interface {
 }
 
 func isJSONPath(s string) bool {
-	return strings.HasPrefix(s, "$")
+	return strings.HasPrefix(s, JSONPathPrefix)
 }
 
 // we need a vm reference to specialize a rule because few key fields may
@@ -44,6 +49,8 @@ func (r *Rule) Specialize(vm *k6tv1.VirtualMachine) (RuleApplier, error) {
 		return NewStringRule(r, vm)
 	case "enum":
 		return NewEnumRule(r, vm)
+	case "refex":
+		return NewRegexRule(r, vm)
 	}
 	return nil, fmt.Errorf("Usupported rule: %s", r.Rule)
 }
@@ -206,4 +213,22 @@ func (er *enumRule) Apply(vm *k6tv1.VirtualMachine) (bool, error) {
 	return false, nil
 }
 
-// TODO: regex
+type regexRule struct {
+	Ref   *Rule
+	Regex string
+}
+
+func NewRegexRule(r *Rule, vm *k6tv1.VirtualMachine) (RuleApplier, error) {
+	return &regexRule{
+		Ref:   r,
+		Regex: r.Regex,
+	}, nil
+}
+
+func (rr *regexRule) Apply(vm *k6tv1.VirtualMachine) (bool, error) {
+	s, err := decodeString(rr.Ref.Path, vm)
+	if err != nil {
+		return false, err
+	}
+	return regexp.MatchString(rr.Regex, s)
+}

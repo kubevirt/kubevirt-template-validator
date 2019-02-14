@@ -54,6 +54,7 @@ type Rule struct {
 	Max       interface{} `json:"max",omitempty`
 	MinLength interface{} `json:"minLength",omitempty`
 	MaxLength interface{} `json:"maxLength",omitempty`
+	Regex     string      `json:"regex",omitempty"`
 }
 
 func (r *Rule) IsAppliableOn(vm *k6tv1.VirtualMachine) (bool, error) {

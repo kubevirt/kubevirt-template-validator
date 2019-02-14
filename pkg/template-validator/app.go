@@ -25,6 +25,8 @@ import (
 
 	"k8s.io/client-go/tools/cache"
 
+	_ "github.com/fromanirh/okdutil/okd"
+
 	"github.com/fromanirh/kubevirt-template-validator/internal/pkg/k8sutils"
 	"github.com/fromanirh/kubevirt-template-validator/internal/pkg/log"
 	"github.com/fromanirh/kubevirt-template-validator/internal/pkg/service"
@@ -40,7 +42,7 @@ const (
 
 type App struct {
 	service.ServiceListen
-	TLSInfo  *k8sutils.TLSInfo
+	TLSInfo  k8sutils.TLSInfo
 	DumpMode bool
 }
 

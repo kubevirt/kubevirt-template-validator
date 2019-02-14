@@ -21,19 +21,13 @@ package main
 import (
 	"os"
 
-	_ "github.com/fromanirh/okdutil/okd"
-
-	"github.com/fromanirh/kubevirt-template-validator/internal/pkg/k8sutils"
 	"github.com/fromanirh/kubevirt-template-validator/internal/pkg/log"
 	"github.com/fromanirh/kubevirt-template-validator/internal/pkg/service"
-	"github.com/fromanirh/kubevirt-template-validator/pkg/validator"
+	validator "github.com/fromanirh/kubevirt-template-validator/pkg/template-validator"
 )
 
 func Main() int {
-	tlsInfo := &k8sutils.TLSInfo{}
-	app := &validator.App{
-		TLSInfo: tlsInfo,
-	}
+	app := &validator.App{}
 	service.Setup(app)
 	log.InitializeLogging("kubevirt-template-validator")
 	app.Run()

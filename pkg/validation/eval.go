@@ -27,6 +27,7 @@ import (
 var (
 	ErrUnrecognizedRuleType error = errors.New("Unrecognized Rule type")
 	ErrDuplicateRuleName    error = errors.New("Duplicate Rule Name")
+	ErrMissingRequiredKey   error = errors.New("Missing required key")
 )
 
 func isValidRule(r string) bool {
@@ -55,6 +56,9 @@ func (r *Result) SetRuleError(ru *Rule, e error) {
 		Ref:           ru,
 		IllegalReason: e,
 	})
+	// rule errors should never go unnoticed.
+	// IOW, if you have a rule, you want to have it applied.
+	r.failed = true
 }
 
 func (r *Result) SetRuleStatus(ru *Rule, satisfied bool) {
@@ -94,6 +98,11 @@ func Evaluate(vm *k6tv1.VirtualMachine, rules []Rule) Result {
 
 		if !isValidRule(r.Rule) {
 			result.SetRuleError(r, ErrUnrecognizedRuleType)
+			continue
+		}
+
+		if r.Path == "" || r.Message == "" {
+			result.SetRuleError(r, ErrMissingRequiredKey)
 			continue
 		}
 

@@ -21,6 +21,7 @@ package validation
 import (
 	"fmt"
 	"reflect"
+	"strings"
 
 	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/client-go/util/jsonpath"
@@ -29,13 +30,56 @@ import (
 )
 
 var (
+	ErrInvalidJSONPath  error = fmt.Errorf("Invalid JSONPath")
 	ErrMismatchingTypes error = fmt.Errorf("Mismatching type(s)")
 	ErrWrongTypes       error = fmt.Errorf("Wrong type(s)")
 )
 
+const (
+	JSONPathPrefix string = "jsonpath::"
+)
+
+func isJSONPath(s string) bool {
+	return strings.HasPrefix(s, JSONPathPrefix)
+}
+
 type Path struct {
 	jp      *jsonpath.JSONPath
 	results [][]reflect.Value
+}
+
+func NewJSONPathFromString(path string) (string, error) {
+	if !isJSONPath(path) {
+		return "", ErrInvalidJSONPath
+	}
+	s := strings.TrimPrefix(path, JSONPathPrefix)
+	// we always need to interpret the user-supplied path as relative path
+	expr := strings.TrimPrefix(s, "$")
+	return fmt.Sprintf("{.spec.template%s}", expr), nil
+}
+
+func NewPath(expr string) (*Path, error) {
+	var err error
+	pathExpr, err := NewJSONPathFromString(expr)
+	if err != nil {
+		return nil, err
+	}
+
+	jp := jsonpath.New(expr) // we don't really care about the name
+	err = jp.Parse(pathExpr)
+	if err != nil {
+		return nil, err
+	}
+	return &Path{jp: jp}, nil
+}
+
+func (p *Path) Find(vm *k6tv1.VirtualMachine) error {
+	var err error
+	p.results, err = p.jp.FindResults(vm)
+	if err != nil {
+		return ErrInvalidJSONPath
+	}
+	return nil
 }
 
 func (p *Path) Len() int {
@@ -80,21 +124,4 @@ func (p *Path) AsInt64() ([]int64, error) {
 		}
 	}
 	return ret, nil
-}
-
-func Find(vm *k6tv1.VirtualMachine, expr string) (*Path, error) {
-	jp := jsonpath.New(expr) // unique name
-	err := jp.Parse(expr)
-	if err != nil {
-		return nil, err
-	}
-
-	results, err := jp.FindResults(vm)
-	if err != nil {
-		return nil, err
-	}
-	return &Path{
-		jp:      jp,
-		results: results,
-	}, nil
 }

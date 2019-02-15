@@ -62,7 +62,15 @@ func (r *Rule) IsAppliableOn(vm *k6tv1.VirtualMachine) (bool, error) {
 		// nothing to check against, so it is OK
 		return true, nil
 	}
-	p, err := Find(vm, r.Valid)
+	var err error
+	p, err := NewPath(r.Valid)
+	if err != nil {
+		return false, err
+	}
+	err = p.Find(vm)
+	if err == ErrInvalidJSONPath {
+		return false, nil
+	}
 	if err != nil {
 		return false, err
 	}

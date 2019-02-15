@@ -21,21 +21,12 @@ package validation
 import (
 	"fmt"
 	"regexp"
-	"strings"
 
 	k6tv1 "kubevirt.io/kubevirt/pkg/api/v1"
 )
 
-const (
-	JSONPathPrefix string = "jsonpath::"
-)
-
 type RuleApplier interface {
 	Apply(vm *k6tv1.VirtualMachine) (bool, error)
-}
-
-func isJSONPath(s string) bool {
-	return strings.HasPrefix(s, JSONPathPrefix)
 }
 
 // we need a vm reference to specialize a rule because few key fields may
@@ -110,7 +101,11 @@ func decodeInt64(obj interface{}, vm *k6tv1.VirtualMachine) (int64, error) {
 		return int64(minVal), nil
 	}
 	if minStr, ok := obj.(string); ok && isJSONPath(minStr) {
-		p, err := Find(vm, minStr)
+		p, err := NewPath(minStr)
+		if err != nil {
+			return 0, err
+		}
+		err = p.Find(vm)
 		if err != nil {
 			return 0, err
 		}
@@ -130,10 +125,15 @@ func decodeString(s string, vm *k6tv1.VirtualMachine) (string, error) {
 	if !isJSONPath(s) {
 		return s, nil
 	}
-	p, err := Find(vm, s)
+	p, err := NewPath(s)
 	if err != nil {
 		return "", err
 	}
+	err = p.Find(vm)
+	if err != nil {
+		return "", err
+	}
+
 	if p.Len() != 1 {
 		return "", fmt.Errorf("expected one value, found %v", p.Len())
 	}

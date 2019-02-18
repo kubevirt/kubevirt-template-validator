@@ -21,7 +21,7 @@ var _ = Describe("Admission", func() {
 			oldVM := k6tv1.VirtualMachine{}
 			rules := []validation.Rule{}
 
-			causes := validating.ValidateVirtualMachine(nil, &newVM, &oldVM, rules)
+			causes := validating.ValidateVMTemplate(rules, &newVM, &oldVM)
 
 			Expect(len(causes)).To(Equal(0))
 		})

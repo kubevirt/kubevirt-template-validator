@@ -146,3 +146,7 @@ var _ = Describe("Eval", func() {
 		})
 	})
 })
+
+// TODO:
+// test with 2+ rules failed
+// test to exercise the translation logic

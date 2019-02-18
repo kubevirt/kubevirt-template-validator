@@ -65,7 +65,7 @@ func admitVMTemplate(ar *v1beta1.AdmissionReview) *v1beta1.AdmissionResponse {
 		log.Log.Infof("admission rules:\n%s", spew.Sdump(rules))
 	}
 
-	causes := ValidateVirtualMachine(nil, newVM, oldVM, rules)
+	causes := ValidateVMTemplate(rules, newVM, oldVM)
 	if len(causes) > 0 {
 		return webhooks.ToAdmissionResponse(causes)
 	}

@@ -88,6 +88,7 @@ func (app *App) Run() {
 	http.HandleFunc(validating.VMTemplateValidatePath, func(w http.ResponseWriter, r *http.Request) {
 		validating.ServeVMTemplateValidate(w, r)
 	})
+
 	if app.TLSInfo.IsEnabled() {
 		log.Log.Infof("validator app: TLS configured, serving over HTTPS on %s", app.Address())
 		http.ListenAndServeTLS(app.Address(), app.TLSInfo.CertFilePath, app.TLSInfo.KeyFilePath, nil)

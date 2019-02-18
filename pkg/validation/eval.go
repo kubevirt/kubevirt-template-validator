@@ -24,6 +24,8 @@ import (
 	"io"
 	"io/ioutil"
 
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+
 	k6tv1 "kubevirt.io/kubevirt/pkg/api/v1"
 )
 
@@ -76,6 +78,24 @@ func (r *Result) SetRuleStatus(ru *Rule, satisfied bool) {
 
 func (r *Result) Succeeded() bool {
 	return !r.failed
+}
+
+func (r *Result) ToStatusCauses() []metav1.StatusCause {
+	var causes []metav1.StatusCause
+	if !r.failed {
+		return causes
+	}
+	for _, rr := range r.Status {
+		if rr.Satisfied {
+			continue
+		}
+		causes = append(causes, metav1.StatusCause{
+			Type:    metav1.CauseTypeFieldValueInvalid,
+			Message: rr.Ref.Message,
+			Field:   rr.Ref.Path,
+		})
+	}
+	return causes
 }
 
 type Evaluator struct {

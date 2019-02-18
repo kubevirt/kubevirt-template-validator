@@ -20,7 +20,6 @@ package validating
 
 import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	k8sfield "k8s.io/apimachinery/pkg/util/validation/field"
 
 	k6tv1 "kubevirt.io/kubevirt/pkg/api/v1"
 
@@ -28,11 +27,16 @@ import (
 	//	"github.com/fromanirh/kubevirt-template-validator/internal/pkg/log"
 )
 
-func ValidateVirtualMachine(field *k8sfield.Path, newVM *k6tv1.VirtualMachine, oldVM *k6tv1.VirtualMachine, rules []validation.Rule) []metav1.StatusCause {
+func ValidateVMTemplate(rules []validation.Rule, newVM, oldVM *k6tv1.VirtualMachine) []metav1.StatusCause {
 	var causes []metav1.StatusCause
 	if len(rules) == 0 {
 		// no rules! everything is permitted, so let's bail out quickly
 		return causes
 	}
-	return causes
+	ev := validation.NewEvaluator()
+	res := ev.Evaluate(rules, newVM)
+	if res.Succeeded() {
+		return causes
+	}
+	return res.ToStatusCauses()
 }

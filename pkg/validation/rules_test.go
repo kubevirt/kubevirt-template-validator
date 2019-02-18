@@ -55,6 +55,36 @@ var _ = Describe("Rules", func() {
 			Expect(err).To(Not(HaveOccurred()))
 			Expect(len(rules)).To(Equal(2))
 		})
+		It("Should apply on a relevant VM", func() {
+			vm := NewVMCirros()
+			r := validation.Rule{
+				Rule:    "integer",
+				Name:    "EnoughMemory",
+				Path:    "jsonpath::.spec.domain.resources.requests.memory",
+				Message: "Memory size not specified",
+				Valid:   "jsonpath::.spec.domain.resources.requests.memory",
+				Min:     64 * 1024 * 1024,
+			}
+			ok, err := r.IsAppliableOn(vm)
+
+			Expect(err).To(Not(HaveOccurred()))
+			Expect(ok).To(BeTrue())
+		})
+		It("Should NOT apply on a NOT relevant VM", func() {
+			vm := NewVMCirros()
+			r := validation.Rule{
+				Rule:    "integer",
+				Name:    "EnoughMemory",
+				Path:    "jsonpath::.spec.domain.resources.requests.memory",
+				Message: "Memory size not specified",
+				Valid:   "jsonpath::.spec.domain.this.path.does.not.exist",
+				Min:     64 * 1024 * 1024,
+			}
+			ok, err := r.IsAppliableOn(vm)
+
+			Expect(err).To(Not(HaveOccurred()))
+			Expect(ok).To(BeFalse())
+		})
 
 	})
 })

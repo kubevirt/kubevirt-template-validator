@@ -40,7 +40,7 @@ func (r *Rule) Specialize(vm *k6tv1.VirtualMachine) (RuleApplier, error) {
 		return NewStringRule(r, vm)
 	case "enum":
 		return NewEnumRule(r, vm)
-	case "refex":
+	case "regex":
 		return NewRegexRule(r, vm)
 	}
 	return nil, fmt.Errorf("Usupported rule: %s", r.Rule)

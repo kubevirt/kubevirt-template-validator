@@ -27,18 +27,7 @@ import (
 // the flow:
 // 1. first you do ParseRule and get []Rule. This is little more than raw data rearranged in Go structs.
 //    You can work with that programmatically, but the first thing you may want to do is
-// 2. Create an Evaluator and feed it with the newly parsed []Rule. An Evaluator encapsulate the context data
-//    needed to check and apply the []Rule.
-// 3. The next step is check the validity of the []Rule. This is needed because ParseRules just unmarhals the
-//    data and does a very minimal sanity check. This step (Evaluator.Check()) gives richer information about
-//    why a rule is legal, or is not.
-//    You will get a Report object for each Rule, but ordering is not guaranteed (e.g. Report #2 may not refer
-//    To Rule #2). You must use Report.Ref to crosslink Reports to Rules.
-// 4. The Evaluator internally knows which rules it must skip, so you can now call Apply() and get a []Result.
-//    You will also get syntetic values, a bool (true if *all* the rules are satisfied, false otherwise) and
-//    An optional error, being != nil only if some internal error happened (e.g you will NOT get an error
-//    if some Rule failed, this is an expected outcome). Like for Report objects, you must use Result.Ref to
-//    crosslink Results with Rules.
+// 2. ...
 
 type Rule struct {
 	// mandatory keys

@@ -23,6 +23,18 @@ var _ = Describe("Path", func() {
 			}
 		})
 
+		It("Should detect non-jsonpaths on creation", func() {
+			testStrings := []string{
+				"string-literal",
+				"$.spec.domain.resources.requests.memory",
+			}
+			for _, s := range testStrings {
+				p, err := validation.NewPath(s)
+				Expect(p).To(BeNil())
+				Expect(err).To(Equal(validation.ErrInvalidJSONPath))
+			}
+		})
+
 		It("Should mangle valid JSONPaths", func() {
 			expected := "{.spec.template.spec.domain.resources.requests.memory}"
 			testStrings := []string{
@@ -55,6 +67,12 @@ var _ = Describe("Path", func() {
 			err = p.Find(vmCirros)
 			Expect(err).To(Equal(validation.ErrInvalidJSONPath))
 		})
+
+		It("Should detect malformed path", func() {
+			p, err := validation.NewPath("jsonpath::random56junk%(*$%&*()")
+			Expect(p).To(BeNil())
+			Expect(err).To(Not(BeNil()))
+		})
 	})
 
 	Context("With valid paths", func() {
@@ -67,8 +85,8 @@ var _ = Describe("Path", func() {
 			vmCirros = NewVMCirros()
 		})
 
-		It("Should provide some results", func() {
-			s := "jsonpath::.spec.domain" // .resources.requests.memory"
+		It("Should provide some integer results", func() {
+			s := "jsonpath::.spec.domain.resources.requests.memory"
 			p, err := validation.NewPath(s)
 			Expect(p).To(Not(BeNil()))
 			Expect(err).To(BeNil())
@@ -76,6 +94,28 @@ var _ = Describe("Path", func() {
 			err = p.Find(vmCirros)
 			Expect(err).To(BeNil())
 			Expect(p.Len()).To(BeNumerically(">=", 1))
+
+			vals, err := p.AsInt64()
+			Expect(err).To(BeNil())
+			Expect(len(vals)).To(Equal(1))
+			Expect(vals[0]).To(BeNumerically(">", 1024))
 		})
+
+		It("Should provide some string results", func() {
+			s := "jsonpath::.spec.domain.machine.type"
+			p, err := validation.NewPath(s)
+			Expect(p).To(Not(BeNil()))
+			Expect(err).To(BeNil())
+
+			err = p.Find(vmCirros)
+			Expect(err).To(BeNil())
+			Expect(p.Len()).To(BeNumerically(">=", 1))
+
+			vals, err := p.AsString()
+			Expect(err).To(BeNil())
+			Expect(len(vals)).To(Equal(1))
+			Expect(vals[0]).To(Equal("q35"))
+		})
+
 	})
 })

@@ -20,6 +20,9 @@ package validation
 
 import (
 	"errors"
+	"fmt"
+	"io"
+	"io/ioutil"
 
 	k6tv1 "kubevirt.io/kubevirt/pkg/api/v1"
 )
@@ -75,13 +78,21 @@ func (r *Result) Succeeded() bool {
 	return !r.failed
 }
 
-// Evaluate apply *all* the rules (greedy evaluation) to the given VM.
+type Evaluator struct {
+	Sink io.Writer
+}
+
+func NewEvaluator() *Evaluator {
+	return &Evaluator{Sink: ioutil.Discard}
+}
+
+// Evaluate applies *all* the rules (greedy evaluation) to the given VM.
 // Returns a Report for each applied Rule, but ordering isn't guaranteed.
 // Use Report.Ref to crosslink Reports with Rules.
 // The 'bool' return value is a syntetic result, it is true if Evaluation succeeded.
 // The 'error' return value signals *internal* evaluation error.
 // IOW 'false' evaluation *DOES NOT* imply error != nil
-func Evaluate(vm *k6tv1.VirtualMachine, rules []Rule) Result {
+func (ev *Evaluator) Evaluate(rules []Rule, vm *k6tv1.VirtualMachine) *Result {
 	// We can argue that this stage is needed because the parsing layer is too poor/dumb
 	// still, we need to do what we need to do.
 	names := make(map[string]int)
@@ -92,16 +103,19 @@ func Evaluate(vm *k6tv1.VirtualMachine, rules []Rule) Result {
 
 		names[r.Name] += 1
 		if names[r.Name] > 1 {
+			fmt.Fprintf(ev.Sink, "%s failed: duplicate name\n", r.Name)
 			result.SetRuleError(r, ErrDuplicateRuleName)
 			continue
 		}
 
 		if !isValidRule(r.Rule) {
+			fmt.Fprintf(ev.Sink, "%s failed: invalid type\n", r.Name)
 			result.SetRuleError(r, ErrUnrecognizedRuleType)
 			continue
 		}
 
 		if r.Path == "" || r.Message == "" {
+			fmt.Fprintf(ev.Sink, "%s failed: missing keys\n", r.Name)
 			result.SetRuleError(r, ErrMissingRequiredKey)
 			continue
 		}
@@ -109,27 +123,33 @@ func Evaluate(vm *k6tv1.VirtualMachine, rules []Rule) Result {
 		// Specialize() may be costly, so we do this before.
 		ok, err := r.IsAppliableOn(vm)
 		if err != nil {
+			fmt.Fprintf(ev.Sink, "%s failed: not appliable: %v\n", r.Name, err)
 			result.SetRuleError(r, err)
 			continue
 		}
 		if !ok {
+			fmt.Fprintf(ev.Sink, "%s SKIPPED: not appliable\n", r.Name)
 			// Legit case. Nothing to do or to complain.
 			continue
 		}
 
 		ra, err := r.Specialize(vm)
 		if err != nil {
+			fmt.Fprintf(ev.Sink, "%s failed: cannot specialize: %v\n", r.Name, err)
 			result.SetRuleError(r, err)
 			continue
 		}
 
 		satisfied, err := ra.Apply(vm)
 		if err != nil {
+			fmt.Fprintf(ev.Sink, "%s failed: cannot apply: %v\n", r.Name, err)
 			result.SetRuleError(r, err)
 			continue
 		}
+
+		fmt.Fprintf(ev.Sink, "%s applyed: %v\n", r.Name, satisfied)
 		result.SetRuleStatus(r, satisfied)
 	}
 
-	return result
+	return &result
 }

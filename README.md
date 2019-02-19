@@ -18,24 +18,29 @@ Apache v2
 
 ### installation on kubernetes (K8S)
 
-1. first, create and deploy the certificates in a Kubernetes Secret, to be used in the following steps:
+1. (ODK/OCP) first, make sure you have the `template:view` cluster role binding in your cluster. If not, add it:
+```bash
+KUBECTL=oc create -f ./cluster/manifests/template-view-role.yaml
+```
+
+2. first, create and deploy the certificates in a Kubernetes Secret, to be used in the following steps:
 ```bash
 KUBECTL=kubectl ./cluster/webhook-create-signed-cert.sh
 ```
 
-1.a. check that the secret exists:
+2.a. check that the secret exists:
 ```bash
 kubectl  get secret -n kubevirt virtualmachine-template-validator-certs
 NAME                                      TYPE      DATA      AGE
 virtualmachine-template-validator-certs   Opaque    2         1h
 ```
 
-2. deploy the service:
+3. deploy the service:
 ```bash
 kubectl create -f ./cluster/manifests/service.yaml
 ```
 
-3. In order to set up the webhook, we need a CA bundle. We can reuse the one from the certs we create from the step #1.
+4. In order to set up the webhook, we need a CA bundle. We can reuse the one from the certs we create from the step #1.
 ```bash
 cat ./cluster/manifests/validating-webhook.yaml | ./cluster/extract-ca.sh | kubectl apply -f -
 ```

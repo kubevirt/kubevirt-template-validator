@@ -59,11 +59,9 @@ func admitVMTemplate(ar *v1beta1.AdmissionReview) *v1beta1.AdmissionResponse {
 		return webhooks.ToAdmissionResponseError(err)
 	}
 
-	if IsDumpModeEnabled() {
-		log.Log.V(2).Infof("admission newVM:\n%s", spew.Sdump(newVM))
-		log.Log.V(2).Infof("admission oldVM:\n%s", spew.Sdump(oldVM))
-		log.Log.V(2).Infof("admission rules:\n%s", spew.Sdump(rules))
-	}
+	log.Log.V(8).Infof("admission newVM:\n%s", spew.Sdump(newVM))
+	log.Log.V(8).Infof("admission oldVM:\n%s", spew.Sdump(oldVM))
+	log.Log.V(8).Infof("admission rules:\n%s", spew.Sdump(rules))
 
 	causes := ValidateVMTemplate(rules, newVM, oldVM)
 	if len(causes) > 0 {
@@ -77,20 +75,19 @@ func serve(resp http.ResponseWriter, req *http.Request, admit admitFunc) {
 	response := v1beta1.AdmissionReview{}
 	review, err := webhooks.GetAdmissionReview(req)
 
+	log.Log.V(8).Infof("evaluating admission")
+	defer log.Log.V(8).Infof("evaluated admission")
+
 	if err != nil {
 		resp.WriteHeader(http.StatusBadRequest)
 		return
 	}
 
-	if IsDumpModeEnabled() {
-		log.Log.Infof("admission review:\n%s", spew.Sdump(review))
-	}
+	log.Log.V(8).Infof("admission review:\n%s", spew.Sdump(review))
 
 	reviewResponse := admit(review)
 
-	if IsDumpModeEnabled() {
-		log.Log.Infof("admission review response:\n%s", spew.Sdump(reviewResponse))
-	}
+	log.Log.V(8).Infof("admission review response:\n%s", spew.Sdump(reviewResponse))
 
 	if reviewResponse != nil {
 		response.Response = reviewResponse

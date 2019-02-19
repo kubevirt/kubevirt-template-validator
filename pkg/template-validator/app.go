@@ -42,8 +42,7 @@ const (
 
 type App struct {
 	service.ServiceListen
-	TLSInfo  k8sutils.TLSInfo
-	DumpMode bool
+	TLSInfo k8sutils.TLSInfo
 }
 
 var _ service.Service = &App{}
@@ -58,7 +57,6 @@ func (app *App) AddFlags() {
 
 	flag.StringVarP(&app.TLSInfo.CertFilePath, "cert-file", "c", "", "override path to TLS certificate - you need also the key to enable TLS")
 	flag.StringVarP(&app.TLSInfo.KeyFilePath, "key-file", "k", "", "override path to TLS key - you need also the cert to enable TLS")
-	flag.BoolVarP(&app.DumpMode, "dump", "D", false, "dump data involved in the admission control")
 }
 
 func (app *App) Run() {
@@ -80,8 +78,6 @@ func (app *App) Run() {
 		)
 		log.Log.Infof("validator app: synched informers")
 	}
-
-	validating.SetDumpMode(app.DumpMode)
 
 	log.Log.Infof("validator app: running with TLSInfo%+v", app.TLSInfo)
 

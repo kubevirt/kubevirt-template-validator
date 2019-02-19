@@ -51,7 +51,7 @@ Done!
 
 To disable the webhook, just de-register it from the apiserver:
 ```bash
-kubectl delete -f ./cluister/manifests/validating-webhook.yaml
+kubectl delete -f ./cluster/manifests/validating-webhook.yaml
 ```
 
 ## Caveats & Gotchas

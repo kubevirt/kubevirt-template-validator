@@ -60,9 +60,9 @@ func admitVMTemplate(ar *v1beta1.AdmissionReview) *v1beta1.AdmissionResponse {
 	}
 
 	if IsDumpModeEnabled() {
-		log.Log.Infof("admission newVM:\n%s", spew.Sdump(newVM))
-		log.Log.Infof("admission oldVM:\n%s", spew.Sdump(oldVM))
-		log.Log.Infof("admission rules:\n%s", spew.Sdump(rules))
+		log.Log.V(2).Infof("admission newVM:\n%s", spew.Sdump(newVM))
+		log.Log.V(2).Infof("admission oldVM:\n%s", spew.Sdump(oldVM))
+		log.Log.V(2).Infof("admission rules:\n%s", spew.Sdump(rules))
 	}
 
 	causes := ValidateVMTemplate(rules, newVM, oldVM)

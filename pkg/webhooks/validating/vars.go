@@ -18,9 +18,14 @@
 
 package validating
 
+import (
+	"github.com/fromanirh/kubevirt-template-validator/internal/pkg/log"
+)
+
 var dumpEnabled bool
 
 func SetDumpMode(mode bool) {
+	log.Log.Infof("validaing webhook: dump mode is %v", mode)
 	dumpEnabled = mode
 }
 

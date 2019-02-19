@@ -70,7 +70,6 @@ spec:
             - --port=8443
             - --cert-file=/etc/webhook/certs/cert.pem
             - --key-file=/etc/webhook/certs/key.pem
-            - --dump
           volumeMounts:
             - name: virtualmachine-template-validator-certs
               mountPath: /etc/webhook/certs

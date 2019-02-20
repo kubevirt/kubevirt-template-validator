@@ -170,9 +170,17 @@ func (ev *Evaluator) Evaluate(rules []Rule, vm *k6tv1.VirtualMachine) *Result {
 		}
 
 		applicationText := ra.String()
-		fmt.Fprintf(ev.Sink, "%s applied: %v, %s\n", r.Name, satisfied, applicationText)
+		fmt.Fprintf(ev.Sink, "%s applied: %v, %s\n", r.Name, boolAsStatus(satisfied), applicationText)
 		result.SetRuleStatus(r, satisfied, applicationText)
 	}
 
 	return &result
+}
+
+func boolAsStatus(val bool) string {
+	if val {
+		return "OK"
+	} else {
+		return "FAIL"
+	}
 }

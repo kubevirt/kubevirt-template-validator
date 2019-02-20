@@ -93,9 +93,10 @@ func getValidationRulesFromTemplate(tmpl *templatev1.Template) ([]validation.Rul
 
 func getValidationRulesForVM(vm *k6tv1.VirtualMachine) ([]validation.Rule, error) {
 	tmpl, err := getParentTemplateForVM(vm)
-	if err != nil {
+	if tmpl == nil || err != nil {
 		// no template resources (kubevirt deployed on kubernetes, not OKD/OCP) or
-		// no parent template for this VM. In either case, we have nothing to do.
+		// no parent template for this VM. In either case, we have nothing to do,
+		// and err is automatically correct
 		return []validation.Rule{}, err
 	}
 	return getValidationRulesFromTemplate(tmpl)

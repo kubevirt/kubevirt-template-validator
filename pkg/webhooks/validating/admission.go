@@ -24,13 +24,15 @@ import (
 	k6tv1 "kubevirt.io/kubevirt/pkg/api/v1"
 
 	"github.com/fromanirh/kubevirt-template-validator/pkg/validation"
-	//	"github.com/fromanirh/kubevirt-template-validator/internal/pkg/log"
+
+	"github.com/fromanirh/kubevirt-template-validator/internal/pkg/log"
 )
 
 func ValidateVMTemplate(rules []validation.Rule, newVM, oldVM *k6tv1.VirtualMachine) []metav1.StatusCause {
 	var causes []metav1.StatusCause
 	if len(rules) == 0 {
 		// no rules! everything is permitted, so let's bail out quickly
+		log.Log.V(8).Infof("no admission rules for: %s", newVM.Name)
 		return causes
 	}
 	ev := validation.NewEvaluator()

@@ -39,19 +39,19 @@ const (
 
 func getTemplateKey(vm *k6tv1.VirtualMachine) (string, bool) {
 	if vm.Annotations == nil {
-		log.Log.Warningf("VM %s missing annotations entirely", vm.Name)
+		log.Log.V(4).Warningf("VM %s missing annotations entirely", vm.Name)
 		return "", false
 	}
 
 	templateNamespace := vm.Annotations[annotationTemplateNamespaceKey]
 	if templateNamespace == "" {
-		log.Log.Warningf("VM %s missing template namespace annotation", vm.Name)
+		log.Log.V(4).Warningf("VM %s missing template namespace annotation", vm.Name)
 		return "", false
 	}
 
 	templateName := vm.Annotations[annotationTemplateNameKey]
 	if templateNamespace == "" {
-		log.Log.Warningf("VM %s missing template annotation", vm.Name)
+		log.Log.V(4).Warningf("VM %s missing template annotation", vm.Name)
 		return "", false
 	}
 
@@ -62,26 +62,29 @@ func getParentTemplateForVM(vm *k6tv1.VirtualMachine) (*templatev1.Template, err
 	informers := virtinformers.GetInformers()
 
 	if informers == nil || informers.TemplateInformer == nil {
-		// no error, it can happen: we're been deployed ok K8S, not OKD/OCD.
+		log.Log.V(8).Infof("no informer available (deployed on K8S?)")
 		return nil, nil
 	}
 
 	cacheKey, ok := getTemplateKey(vm)
 	if !ok {
-		// baked VM (aka no parent template). May happen, it's OK.
+		log.Log.V(8).Infof("detected %s as baked (no parent template)", vm.Name)
 		return nil, nil
 	}
 
 	obj, exists, err := informers.TemplateInformer.GetStore().GetByKey(cacheKey)
 	if err != nil {
+		log.Log.V(8).Infof("parent template (key=%s) not found for %s: %v", cacheKey, vm.Name, err)
 		return nil, err
 	}
 
 	if !exists {
-		// ok, this is weird
-		return nil, fmt.Errorf("unable to find template object %s for VM %s", cacheKey, vm.Name)
+		msg := fmt.Sprintf("missing parent template (key=%s) for %s", cacheKey, vm.Name)
+		log.Log.V(4).Warning(msg)
+		return nil, fmt.Errorf("%s", msg)
 	}
 
+	log.Log.V(8).Infof("found parent template for %s", vm.Name)
 	tmpl := obj.(*templatev1.Template)
 	// TODO explain deepcopy
 	return tmpl.DeepCopy(), nil

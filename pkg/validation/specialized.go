@@ -20,6 +20,8 @@ package validation
 
 import (
 	"fmt"
+	"math"
+	"reflect"
 	"regexp"
 	"strings"
 
@@ -112,17 +114,23 @@ type intRule struct {
 }
 
 func decodeInt64(obj interface{}, vm *k6tv1.VirtualMachine) (int64, error) {
-	if minVal, ok := obj.(int); ok {
-		return int64(minVal), nil
+	if intVal, ok := obj.(int); ok {
+		return int64(intVal), nil
 	}
-	if minVal, ok := obj.(int32); ok {
-		return int64(minVal), nil
+	if intVal, ok := obj.(int32); ok {
+		return int64(intVal), nil
 	}
-	if minVal, ok := obj.(int64); ok {
-		return int64(minVal), nil
+	if intVal, ok := obj.(int64); ok {
+		return int64(intVal), nil
 	}
-	if minStr, ok := obj.(string); ok && isJSONPath(minStr) {
-		p, err := NewPath(minStr)
+	if floatVal, ok := obj.(float32); ok {
+		return int64(math.Round(float64(floatVal))), nil
+	}
+	if floatVal, ok := obj.(float64); ok {
+		return int64(math.Round(floatVal)), nil
+	}
+	if strVal, ok := obj.(string); ok && isJSONPath(strVal) {
+		p, err := NewPath(strVal)
 		if err != nil {
 			return 0, err
 		}
@@ -139,7 +147,7 @@ func decodeInt64(obj interface{}, vm *k6tv1.VirtualMachine) (int64, error) {
 		}
 		return vals[0], nil
 	}
-	return 0, fmt.Errorf("Unrecognized type")
+	return 0, fmt.Errorf("Unsupported type %v (%v)", obj, reflect.TypeOf(obj).Name())
 }
 
 func decodeString(s string, vm *k6tv1.VirtualMachine) (string, error) {

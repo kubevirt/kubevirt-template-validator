@@ -47,8 +47,9 @@ func isValidRule(r string) bool {
 
 type Report struct {
 	Ref           *Rule
-	Satisfied     bool  // applied rule, with this result
-	IllegalReason error // rule not applied, because of this error
+	Satisfied     bool   // applied rule, with this result
+	Message       string // if not satisfied, explain the reason
+	IllegalReason error  // rule not applied, because of this error
 }
 
 type Result struct {
@@ -66,10 +67,11 @@ func (r *Result) SetRuleError(ru *Rule, e error) {
 	r.failed = true
 }
 
-func (r *Result) SetRuleStatus(ru *Rule, satisfied bool) {
+func (r *Result) SetRuleStatus(ru *Rule, satisfied bool, message string) {
 	r.Status = append(r.Status, Report{
 		Ref:       ru,
 		Satisfied: satisfied,
+		Message:   message,
 	})
 	if !satisfied {
 		r.failed = true
@@ -91,8 +93,8 @@ func (r *Result) ToStatusCauses() []metav1.StatusCause {
 		}
 		causes = append(causes, metav1.StatusCause{
 			Type:    metav1.CauseTypeFieldValueInvalid,
-			Message: rr.Ref.Message,
-			Field:   rr.Ref.Path,
+			Field:   TrimJSONPath(rr.Ref.Path),
+			Message: fmt.Sprintf("%s: %s", rr.Ref.Message, rr.Message),
 		})
 	}
 	return causes
@@ -168,7 +170,7 @@ func (ev *Evaluator) Evaluate(rules []Rule, vm *k6tv1.VirtualMachine) *Result {
 		}
 
 		fmt.Fprintf(ev.Sink, "%s applyed: %v\n", r.Name, satisfied)
-		result.SetRuleStatus(r, satisfied)
+		result.SetRuleStatus(r, satisfied, ra.String())
 	}
 
 	return &result

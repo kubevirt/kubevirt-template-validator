@@ -48,13 +48,17 @@ type Path struct {
 	results [][]reflect.Value
 }
 
+func TrimJSONPath(path string) string {
+	s := strings.TrimPrefix(path, JSONPathPrefix)
+	// we always need to interpret the user-supplied path as relative path
+	return strings.TrimPrefix(s, "$")
+}
+
 func NewJSONPathFromString(path string) (string, error) {
 	if !isJSONPath(path) {
 		return "", ErrInvalidJSONPath
 	}
-	s := strings.TrimPrefix(path, JSONPathPrefix)
-	// we always need to interpret the user-supplied path as relative path
-	expr := strings.TrimPrefix(s, "$")
+	expr := TrimJSONPath(path)
 	return fmt.Sprintf("{.spec.template%s}", expr), nil
 }
 

@@ -21,12 +21,14 @@ package validation
 import (
 	"fmt"
 	"regexp"
+	"strings"
 
 	k6tv1 "kubevirt.io/kubevirt/pkg/api/v1"
 )
 
 type RuleApplier interface {
 	Apply(vm *k6tv1.VirtualMachine) (bool, error)
+	String() string
 }
 
 // we need a vm reference to specialize a rule because few key fields may
@@ -84,10 +86,29 @@ func (r *Range) Includes(v int64) bool {
 	return true
 }
 
+// can't be a Stringer
+func (r *Range) ToString(v int64) string {
+	cond := ""
+	if !r.Includes(v) {
+		cond = "not "
+	}
+	lowerBound := "N/A"
+	if r.MinSet {
+		lowerBound = fmt.Sprintf("%d", r.Min)
+	}
+	upperBound := "N/A"
+	if r.MaxSet {
+		upperBound = fmt.Sprintf("%d", r.Max)
+	}
+	return fmt.Sprintf("%v %sin [%s, %s]", v, cond, lowerBound, upperBound)
+}
+
 // These are the specializedrules
 type intRule struct {
-	Ref   *Rule
-	Value Range
+	Ref       *Rule
+	Value     Range
+	Current   int64
+	Satisfied bool
 }
 
 func decodeInt64(obj interface{}, vm *k6tv1.VirtualMachine) (int64, error) {
@@ -154,16 +175,24 @@ func NewIntRule(r *Rule, vm *k6tv1.VirtualMachine) (RuleApplier, error) {
 }
 
 func (ir *intRule) Apply(vm *k6tv1.VirtualMachine) (bool, error) {
-	v, err := decodeInt64(ir.Ref.Path, vm)
+	var err error
+	ir.Current, err = decodeInt64(ir.Ref.Path, vm)
 	if err != nil {
 		return false, err
 	}
-	return ir.Value.Includes(v), nil
+	ir.Satisfied = ir.Value.Includes(ir.Current)
+	return ir.Satisfied, nil
+}
+
+func (ir *intRule) String() string {
+	return ir.Value.ToString(ir.Current)
 }
 
 type stringRule struct {
-	Ref    *Rule
-	Length Range
+	Ref       *Rule
+	Length    Range
+	Current   string
+	Satisfied bool
 }
 
 func NewStringRule(r *Rule, vm *k6tv1.VirtualMachine) (RuleApplier, error) {
@@ -176,16 +205,24 @@ func NewStringRule(r *Rule, vm *k6tv1.VirtualMachine) (RuleApplier, error) {
 }
 
 func (sr *stringRule) Apply(vm *k6tv1.VirtualMachine) (bool, error) {
-	s, err := decodeString(sr.Ref.Path, vm)
+	var err error
+	sr.Current, err = decodeString(sr.Ref.Path, vm)
 	if err != nil {
 		return false, err
 	}
-	return sr.Length.Includes(int64(len(s))), nil
+	sr.Satisfied = sr.Length.Includes(int64(len(sr.Current)))
+	return sr.Satisfied, nil
+}
+
+func (sr *stringRule) String() string {
+	return sr.Length.ToString(int64(len(sr.Current)))
 }
 
 type enumRule struct {
-	Ref    *Rule
-	Values []string
+	Ref       *Rule
+	Values    []string
+	Current   string
+	Satisfied bool
 }
 
 func NewEnumRule(r *Rule, vm *k6tv1.VirtualMachine) (RuleApplier, error) {
@@ -201,21 +238,34 @@ func NewEnumRule(r *Rule, vm *k6tv1.VirtualMachine) (RuleApplier, error) {
 }
 
 func (er *enumRule) Apply(vm *k6tv1.VirtualMachine) (bool, error) {
-	s, err := decodeString(er.Ref.Path, vm)
+	var err error
+	er.Current, err = decodeString(er.Ref.Path, vm)
 	if err != nil {
 		return false, err
 	}
 	for _, v := range er.Values {
-		if s == v {
-			return true, nil
+		if er.Current == v {
+			er.Satisfied = true
+			return er.Satisfied, nil
 		}
 	}
-	return false, nil
+	er.Satisfied = false // enforce
+	return er.Satisfied, nil
+}
+
+func (er *enumRule) String() string {
+	cond := ""
+	if !er.Satisfied {
+		cond = "not "
+	}
+	return fmt.Sprintf("%s %sin [%s]", er.Current, cond, strings.Join(er.Values, ", "))
 }
 
 type regexRule struct {
-	Ref   *Rule
-	Regex string
+	Ref       *Rule
+	Regex     string
+	Current   string
+	Satisfied bool
 }
 
 func NewRegexRule(r *Rule, vm *k6tv1.VirtualMachine) (RuleApplier, error) {
@@ -226,9 +276,19 @@ func NewRegexRule(r *Rule, vm *k6tv1.VirtualMachine) (RuleApplier, error) {
 }
 
 func (rr *regexRule) Apply(vm *k6tv1.VirtualMachine) (bool, error) {
-	s, err := decodeString(rr.Ref.Path, vm)
+	var err error
+	rr.Current, err = decodeString(rr.Ref.Path, vm)
 	if err != nil {
 		return false, err
 	}
-	return regexp.MatchString(rr.Regex, s)
+	rr.Satisfied, err = regexp.MatchString(rr.Regex, rr.Current)
+	return rr.Satisfied, err
+}
+
+func (rr *regexRule) String() string {
+	cond := ""
+	if !rr.Satisfied {
+		cond = "not "
+	}
+	return fmt.Sprintf("%s %smatches %s", rr.Current, cond, rr.Regex)
 }

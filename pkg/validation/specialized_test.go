@@ -53,7 +53,6 @@ var _ = Describe("Specialized", func() {
 				Name:    "EnoughMemory",
 				Path:    "jsonpath::.spec.domain.resources.requests.memory",
 				Message: "Memory size not specified",
-				Valid:   "jsonpath::.spec.domain.this.path.does.not.exist",
 				Min:     64 * 1024 * 1024,
 				Max:     512 * 1024 * 1024,
 			}

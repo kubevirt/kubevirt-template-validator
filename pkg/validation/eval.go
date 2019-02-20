@@ -169,8 +169,9 @@ func (ev *Evaluator) Evaluate(rules []Rule, vm *k6tv1.VirtualMachine) *Result {
 			continue
 		}
 
-		fmt.Fprintf(ev.Sink, "%s applyed: %v\n", r.Name, satisfied)
-		result.SetRuleStatus(r, satisfied, ra.String())
+		applicationText := ra.String()
+		fmt.Fprintf(ev.Sink, "%s applied: %v, %s\n", r.Name, satisfied, applicationText)
+		result.SetRuleStatus(r, satisfied, applicationText)
 	}
 
 	return &result

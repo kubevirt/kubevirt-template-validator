@@ -65,8 +65,6 @@ func ToAdmissionResponseOK() *v1beta1.AdmissionResponse {
 
 // ToAdmissionResponseError
 func ToAdmissionResponseError(err error) *v1beta1.AdmissionResponse {
-	log.Log.Errorf("admission generic error: %v", err)
-
 	return &v1beta1.AdmissionResponse{
 		Result: &metav1.Status{
 			Message: err.Error(),
@@ -76,8 +74,6 @@ func ToAdmissionResponseError(err error) *v1beta1.AdmissionResponse {
 }
 
 func ToAdmissionResponse(causes []metav1.StatusCause) *v1beta1.AdmissionResponse {
-	log.Log.Infof("rejected vmi admission")
-
 	globalMessage := ""
 	for _, cause := range causes {
 		if globalMessage == "" {
@@ -125,7 +121,6 @@ func ValidateSchema(gvk schema.GroupVersionKind, data []byte) *v1beta1.Admission
 }
 
 func GetAdmissionReviewVM(ar *v1beta1.AdmissionReview) (*k6tv1.VirtualMachine, *k6tv1.VirtualMachine, error) {
-
 	if ar.Request.Resource.Resource != "virtualmachines" {
 		return nil, nil, fmt.Errorf("expect resource %v to be '%s'", ar.Request.Resource, "virtualmachines")
 	}

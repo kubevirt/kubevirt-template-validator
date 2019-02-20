@@ -66,7 +66,7 @@ spec:
               memory: 50Mi
               cpu: 300m
           args:
-            - -v=2
+            - -v=8
             - --port=8443
             - --cert-file=/etc/webhook/certs/cert.pem
             - --key-file=/etc/webhook/certs/key.pem

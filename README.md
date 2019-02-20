@@ -16,33 +16,60 @@ Apache v2
 
 ## Installation
 
-### installation on kubernetes (K8S)
-
-1. (ODK/OCP) first, make sure you have the `template:view` cluster role binding in your cluster. If not, add it:
+You need to pick the platform on which you want to install.
+For kubernetes:
 ```bash
-KUBECTL=oc create -f ./cluster/manifests/template-view-role.yaml
+export PLATFORM=k8s
+```
+for OKD/OCP:
+```bash
+export PLATFORM=okd
 ```
 
-2. first, create and deploy the certificates in a Kubernetes Secret, to be used in the following steps:
+now you can set which tool you need to use to interact with the cluster. Usually:
+for kubernetes:
 ```bash
-KUBECTL=kubectl ./cluster/webhook-create-signed-cert.sh
+export KUBECTL=kubectl
+```
+for OKD/OCP:
+```bash
+export KUBECTL=oc
+```
+
+### installation on OKD/OCP
+
+Make sure the validating webhooks are enabled. You either need to configure the platform when you install it
+or to use OKD/OCP >= 4.0. See:
+- https://github.com/openshift/origin/issues/20842
+- https://github.com/openshift/openshift-ansible/issues/7983
+
+Then, make sure you have the `template:view` cluster role binding in your cluster. If not, add it:
+```bash
+$KUBECTL create -f ./cluster/manifests/okd/template-view-role.yaml
+```
+
+### common installation instructions
+
+1. first, create and deploy the certificates in a Kubernetes Secret, to be used in the following steps:
+```bash
+$KUBECTL ./cluster/$PLATFORM/webhook-create-signed-cert.sh
 ```
 
 2.a. check that the secret exists:
 ```bash
-kubectl  get secret -n kubevirt virtualmachine-template-validator-certs
+$KUBECTL get secret -n kubevirt virtualmachine-template-validator-certs
 NAME                                      TYPE      DATA      AGE
 virtualmachine-template-validator-certs   Opaque    2         1h
 ```
 
 3. deploy the service:
 ```bash
-kubectl create -f ./cluster/manifests/service.yaml
+$KUBECTL create -f ./cluster/$PLATFORM/manifests/service.yaml
 ```
 
 4. In order to set up the webhook, we need a CA bundle. We can reuse the one from the certs we create from the step #1.
 ```bash
-cat ./cluster/manifests/validating-webhook.yaml | ./cluster/extract-ca.sh | kubectl apply -f -
+cat ./cluster/$PLATFORM/manifests/validating-webhook.yaml | ./cluster/$PLATFORM/extract-ca.sh | $KUBECTL apply -f -
 ```
 
 Done!
@@ -51,7 +78,7 @@ Done!
 
 To disable the webhook, just de-register it from the apiserver:
 ```bash
-kubectl delete -f ./cluster/manifests/validating-webhook.yaml
+$KUBECTL delete -f ./cluster/$PLATFORM/manifests/validating-webhook.yaml
 ```
 
 ## Caveats & Gotchas

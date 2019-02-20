@@ -45,14 +45,14 @@ or to use OKD/OCP >= 4.0. See:
 
 Then, make sure you have the `template:view` cluster role binding in your cluster. If not, add it:
 ```bash
-$KUBECTL create -f ./cluster/manifests/okd/template-view-role.yaml
+$KUBECTL create -f ./cluster/okd/manifests/template-view-role.yaml
 ```
 
 ### common installation instructions
 
 1. first, create and deploy the certificates in a Kubernetes Secret, to be used in the following steps:
 ```bash
-$KUBECTL ./cluster/$PLATFORM/webhook-create-signed-cert.sh
+./cluster/$PLATFORM/webhook-create-signed-cert.sh
 ```
 
 2.a. check that the secret exists:

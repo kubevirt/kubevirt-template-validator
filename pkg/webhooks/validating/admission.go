@@ -19,6 +19,8 @@
 package validating
 
 import (
+	"bytes"
+
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	k6tv1 "kubevirt.io/kubevirt/pkg/api/v1"
@@ -35,8 +37,11 @@ func ValidateVMTemplate(rules []validation.Rule, newVM, oldVM *k6tv1.VirtualMach
 		log.Log.V(8).Infof("no admission rules for: %s", newVM.Name)
 		return causes
 	}
-	ev := validation.NewEvaluator()
+	buf := new(bytes.Buffer)
+	ev := validation.Evaluator{Sink: buf}
 	res := ev.Evaluate(rules, newVM)
+	log.Log.V(4).Infof("evalution summary:\n%s", buf.String())
+
 	if res.Succeeded() {
 		return causes
 	}

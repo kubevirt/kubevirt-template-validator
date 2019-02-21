@@ -117,5 +117,19 @@ var _ = Describe("Path", func() {
 			Expect(vals[0]).To(Equal("q35"))
 		})
 
+		/* FIXME: the jsonpath package we use can't let us distinguish between:
+		   - bogus paths (e.g. paths which don't make sense in a VM object) and
+		   - uninitialized paths (e.g. legal paths but with a nil along the chain)
+		It("Should handle uninitialized paths", func() {
+			s := "jsonpath::.spec.domain.cpu.cores"
+			p, err := validation.NewPath(s)
+			Expect(p).To(Not(BeNil()))
+			Expect(err).To(BeNil())
+
+			err = p.Find(vmCirros)
+			Expect(err).To(BeNil())
+			Expect(p.Len()).To(BeNumerically("=", 0))
+		})
+		*/
 	})
 })

@@ -19,14 +19,14 @@ var _ = Describe("Eval", func() {
 					Name: "rule-1",
 					Rule: "integer",
 					// any legal path is fine
-					Path:    ".spec.domain.cpu.cores",
+					Path:    "jsonpath::.spec.domain.cpu.cores",
 					Message: "testing",
 				},
 				validation.Rule{
 					Name: "rule-1",
 					Rule: "string",
 					// any legal path is fine
-					Path:    ".spec.domain.cpu.cores",
+					Path:    "jsonpath::.spec.domain.cpu.cores",
 					Message: "testing",
 				},
 			}
@@ -46,7 +46,7 @@ var _ = Describe("Eval", func() {
 					Name: "rule-1",
 					Rule: "integer",
 					// any legal path is fine
-					Path: ".spec.domain.cpu.cores",
+					Path: "jsonpath::.spec.domain.cpu.cores",
 				},
 				validation.Rule{
 					Name:    "rule-2",
@@ -69,7 +69,7 @@ var _ = Describe("Eval", func() {
 					Name: "rule-1",
 					Rule: "foobar",
 					// any legal path is fine
-					Path:    ".spec.domain.cpu.cores",
+					Path:    "jsonpath::.spec.domain.cpu.cores",
 					Message: "testing",
 				},
 			}
@@ -86,9 +86,9 @@ var _ = Describe("Eval", func() {
 					Name: "rule-1",
 					Rule: "integer",
 					// any legal path is fine
-					Path:    ".spec.domain.cpu.cores",
+					Path:    "jsonpath::.spec.domain.cpu.cores",
 					Message: "testing",
-					Valid:   ".spec.domain.some.inexistent.path",
+					Valid:   "jsonpath::.spec.domain.some.inexistent.path",
 				},
 			}
 			vm := k6tv1.VirtualMachine{}

@@ -46,24 +46,29 @@ type Rule struct {
 	Regex     string      `json:"regex",omitempty"`
 }
 
-func (r *Rule) IsAppliableOn(vm *k6tv1.VirtualMachine) (bool, error) {
-	if r.Valid == "" {
-		// nothing to check against, so it is OK
-		return true, nil
-	}
+func (r *Rule) findPathOn(vm *k6tv1.VirtualMachine) (bool, error) {
 	var err error
 	p, err := NewPath(r.Valid)
 	if err != nil {
 		return false, err
 	}
 	err = p.Find(vm)
-	if err == ErrInvalidJSONPath {
-		return false, nil
-	}
 	if err != nil {
 		return false, err
 	}
 	return p.Len() > 0, nil
+}
+
+func (r *Rule) IsAppliableOn(vm *k6tv1.VirtualMachine) (bool, error) {
+	if r.Valid == "" {
+		// nothing to check against, so it is OK
+		return true, nil
+	}
+	ok, err := r.findPathOn(vm)
+	if err == ErrInvalidJSONPath {
+		return false, nil
+	}
+	return ok, err
 }
 
 func ParseRules(data []byte) ([]Rule, error) {

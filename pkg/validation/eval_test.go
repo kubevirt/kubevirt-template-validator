@@ -35,8 +35,8 @@ var _ = Describe("Eval", func() {
 			res := validation.NewEvaluator().Evaluate(rules, &vm)
 			Expect(res.Succeeded()).To(BeFalse())
 			Expect(len(res.Status)).To(Equal(2))
-			Expect(res.Status[0].IllegalReason).To(Not(BeNil()))
-			Expect(res.Status[1].IllegalReason).To(Equal(validation.ErrDuplicateRuleName))
+			Expect(res.Status[0].Error).To(Not(BeNil()))
+			Expect(res.Status[1].Error).To(Equal(validation.ErrDuplicateRuleName))
 
 		})
 
@@ -59,8 +59,8 @@ var _ = Describe("Eval", func() {
 			res := validation.NewEvaluator().Evaluate(rules, &vm)
 			Expect(res.Succeeded()).To(BeFalse())
 			Expect(len(res.Status)).To(Equal(2))
-			Expect(res.Status[0].IllegalReason).To(Equal(validation.ErrMissingRequiredKey))
-			Expect(res.Status[1].IllegalReason).To(Equal(validation.ErrMissingRequiredKey))
+			Expect(res.Status[0].Error).To(Equal(validation.ErrMissingRequiredKey))
+			Expect(res.Status[1].Error).To(Equal(validation.ErrMissingRequiredKey))
 		})
 
 		It("Should detect invalid rules", func() {
@@ -78,7 +78,7 @@ var _ = Describe("Eval", func() {
 			res := validation.NewEvaluator().Evaluate(rules, &vm)
 			Expect(res.Succeeded()).To(BeFalse())
 			Expect(len(res.Status)).To(Equal(1))
-			Expect(res.Status[0].IllegalReason).To(Equal(validation.ErrUnrecognizedRuleType))
+			Expect(res.Status[0].Error).To(Equal(validation.ErrUnrecognizedRuleType))
 		})
 		It("Should detect unappliable rules", func() {
 			rules := []validation.Rule{
@@ -93,11 +93,14 @@ var _ = Describe("Eval", func() {
 			}
 			vm := k6tv1.VirtualMachine{}
 
-			res := validation.NewEvaluator().Evaluate(rules, &vm)
-			Expect(res.Succeeded()).To(BeFalse())
+			ev := validation.Evaluator{Sink: GinkgoWriter}
+			res := ev.Evaluate(rules, &vm)
+
+			Expect(res.Succeeded()).To(BeTrue())
 			Expect(len(res.Status)).To(Equal(1))
+			Expect(res.Status[0].Valid).To(BeFalse())
 			Expect(res.Status[0].Satisfied).To(BeFalse())
-			Expect(res.Status[0].IllegalReason).To(Equal(validation.ErrInvalidJSONPath))
+			Expect(res.Status[0].Error).To(BeNil())
 		})
 	})
 
@@ -141,7 +144,7 @@ var _ = Describe("Eval", func() {
 			Expect(len(res.Status)).To(Equal(len(rules)))
 			for ix := range res.Status {
 				Expect(res.Status[ix].Satisfied).To(BeTrue())
-				Expect(res.Status[ix].IllegalReason).To(BeNil())
+				Expect(res.Status[ix].Error).To(BeNil())
 			}
 		})
 	})

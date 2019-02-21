@@ -46,10 +46,11 @@ func isValidRule(r string) bool {
 }
 
 type Report struct {
-	Ref           *Rule
-	Satisfied     bool   // applied rule, with this result
-	Message       string // if not satisfied, explain the reason
-	IllegalReason error  // rule not applied, because of this error
+	Ref       *Rule
+	Valid     bool   // same meaning as spec
+	Satisfied bool   // applied rule, with this result
+	Message   string // human-friendly application output (debug/troubleshooting)
+	Error     error  // *internal* error
 }
 
 type Result struct {
@@ -57,19 +58,27 @@ type Result struct {
 	failed bool
 }
 
-func (r *Result) SetRuleError(ru *Rule, e error) {
+func (r *Result) Fail(ru *Rule, e error) {
 	r.Status = append(r.Status, Report{
-		Ref:           ru,
-		IllegalReason: e,
+		Ref:   ru,
+		Error: e,
 	})
 	// rule errors should never go unnoticed.
 	// IOW, if you have a rule, you want to have it applied.
 	r.failed = true
 }
 
-func (r *Result) SetRuleStatus(ru *Rule, satisfied bool, message string) {
+func (r *Result) Skip(ru *Rule) {
+	r.Status = append(r.Status, Report{
+		Ref:   ru,
+		Valid: false,
+	})
+}
+
+func (r *Result) Applied(ru *Rule, satisfied bool, message string) {
 	r.Status = append(r.Status, Report{
 		Ref:       ru,
+		Valid:     true,
 		Satisfied: satisfied,
 		Message:   message,
 	})
@@ -88,7 +97,7 @@ func (r *Result) ToStatusCauses() []metav1.StatusCause {
 		return causes
 	}
 	for _, rr := range r.Status {
-		if rr.Satisfied {
+		if !rr.Valid || rr.Satisfied {
 			continue
 		}
 		causes = append(causes, metav1.StatusCause{
@@ -126,19 +135,19 @@ func (ev *Evaluator) Evaluate(rules []Rule, vm *k6tv1.VirtualMachine) *Result {
 		names[r.Name] += 1
 		if names[r.Name] > 1 {
 			fmt.Fprintf(ev.Sink, "%s failed: duplicate name\n", r.Name)
-			result.SetRuleError(r, ErrDuplicateRuleName)
+			result.Fail(r, ErrDuplicateRuleName)
 			continue
 		}
 
 		if !isValidRule(r.Rule) {
 			fmt.Fprintf(ev.Sink, "%s failed: invalid type\n", r.Name)
-			result.SetRuleError(r, ErrUnrecognizedRuleType)
+			result.Fail(r, ErrUnrecognizedRuleType)
 			continue
 		}
 
 		if r.Path == "" || r.Message == "" {
 			fmt.Fprintf(ev.Sink, "%s failed: missing keys\n", r.Name)
-			result.SetRuleError(r, ErrMissingRequiredKey)
+			result.Fail(r, ErrMissingRequiredKey)
 			continue
 		}
 
@@ -146,32 +155,33 @@ func (ev *Evaluator) Evaluate(rules []Rule, vm *k6tv1.VirtualMachine) *Result {
 		ok, err := r.IsAppliableOn(vm)
 		if err != nil {
 			fmt.Fprintf(ev.Sink, "%s failed: not appliable: %v\n", r.Name, err)
-			result.SetRuleError(r, err)
+			result.Fail(r, err)
 			continue
 		}
 		if !ok {
-			fmt.Fprintf(ev.Sink, "%s SKIPPED: not appliable\n", r.Name)
 			// Legit case. Nothing to do or to complain.
+			fmt.Fprintf(ev.Sink, "%s SKIPPED: not appliable\n", r.Name)
+			result.Skip(r)
 			continue
 		}
 
 		ra, err := r.Specialize(vm)
 		if err != nil {
 			fmt.Fprintf(ev.Sink, "%s failed: cannot specialize: %v\n", r.Name, err)
-			result.SetRuleError(r, err)
+			result.Fail(r, err)
 			continue
 		}
 
 		satisfied, err := ra.Apply(vm)
 		if err != nil {
 			fmt.Fprintf(ev.Sink, "%s failed: cannot apply: %v\n", r.Name, err)
-			result.SetRuleError(r, err)
+			result.Fail(r, err)
 			continue
 		}
 
 		applicationText := ra.String()
 		fmt.Fprintf(ev.Sink, "%s applied: %v, %s\n", r.Name, boolAsStatus(satisfied), applicationText)
-		result.SetRuleStatus(r, satisfied, applicationText)
+		result.Applied(r, satisfied, applicationText)
 	}
 
 	return &result

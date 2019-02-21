@@ -104,6 +104,37 @@ var _ = Describe("Eval", func() {
 		})
 	})
 
+	/* TODO: fix Path before
+	Context("With an initialized VM object", func() {
+		var (
+			vmCirros *k6tv1.VirtualMachine
+		)
+
+		BeforeEach(func() {
+			vmCirros = NewVMCirros()
+		})
+
+		It("should handle uninitialized paths", func() {
+			rules := []validation.Rule{
+				validation.Rule{
+					Name:    "LimitCores",
+					Rule:    "integer",
+					Path:    "jsonpath::.spec.domain.cpu.cores",
+					Message: "testing",
+					Min:     1,
+					Max:     8,
+				},
+			}
+
+			ev := validation.Evaluator{Sink: GinkgoWriter}
+			res := ev.Evaluate(rules, vmCirros)
+
+			Expect(res.Succeeded()).To(BeTrue())
+			Expect(len(res.Status)).To(Equal(1))
+		})
+	})
+	*/
+
 	Context("With valid rule set", func() {
 
 		var (

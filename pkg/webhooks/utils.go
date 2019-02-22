@@ -31,8 +31,6 @@ import (
 	k6tv1 "kubevirt.io/kubevirt/pkg/api/v1"
 	"kubevirt.io/kubevirt/pkg/util/openapi"
 	k6trest "kubevirt.io/kubevirt/pkg/virt-api/rest"
-
-	"github.com/fromanirh/kubevirt-template-validator/internal/pkg/log"
 )
 
 var Validator = openapi.CreateOpenAPIValidator(k6trest.ComposeAPIDefinitions())

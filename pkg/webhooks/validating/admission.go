@@ -40,7 +40,7 @@ func ValidateVMTemplate(rules []validation.Rule, newVM, oldVM *k6tv1.VirtualMach
 	buf := new(bytes.Buffer)
 	ev := validation.Evaluator{Sink: buf}
 	res := ev.Evaluate(rules, newVM)
-	log.Log.V(4).Infof("evalution summary for %s:\n%s\nsucceeded=%v", newVM.Name, buf.String(), res.Succeeded())
+	log.Log.V(2).Infof("evalution summary for %s:\n%s\nsucceeded=%v", newVM.Name, buf.String(), res.Succeeded())
 
 	if res.Succeeded() {
 		return causes

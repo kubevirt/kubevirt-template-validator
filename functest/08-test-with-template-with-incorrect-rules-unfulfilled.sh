@@ -1,10 +1,11 @@
 #!/bin/bash
-RET=1
-$KUBECTL create -f manifests/template-with-incorrect-rules.yaml &> /dev/null || exit 2
-$KUBECTL create -f manifests/08-vm-from-template-with-incorrect-rules-unfulfilled.yaml &> /dev/null
-if $KUBECTL get vm vm-test-08 &> /dev/null; then
-	RET=0
-	$KUBECTL delete vm vm-test-08 &> /dev/null
+{
+RET=0
+$KUBECTL create -f manifests/template-with-rules-incorrect.yaml  || exit 2
+if $KUBECTL create -f manifests/08-vm-from-template-with-incorrect-rules-unfulfilled.yaml ; then
+	RET=1
+	$KUBECTL delete vm vm-test-08
 fi
-$KUBECTL delete -f manifests/template-with-incorrect-rules.yaml &> /dev/null
-exit $RET	
+$KUBECTL delete -f manifests/template-with-rules-incorrect.yaml
+exit $RET
+} &> /dev/null

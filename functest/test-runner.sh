@@ -4,10 +4,10 @@ for testscript in $( ls ??-test-*.sh); do
 	testname="${testname%.*}"  # see http://www.gnu.org/software/bash/manual/html_node/Shell-Parameter-Expansion.html
 
 	if ./$testscript; then
-		printf "%48s: OK\n" "$testname"
+		printf "%-64s: OK\n" "$testname"
 	else
-		printf "%48s: FAILED\n" "$testname"
+		printf "%-64s: FAILED\n" "$testname"
 		exit 1
 	fi
 done
-exit 0 
+exit 0

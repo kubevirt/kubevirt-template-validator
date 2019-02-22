@@ -47,7 +47,7 @@ func isValidRule(r string) bool {
 
 type Report struct {
 	Ref       *Rule
-	Valid     bool   // same meaning as spec
+	Skipped   bool   // because not valid, with `valid` defined as per spec
 	Satisfied bool   // applied rule, with this result
 	Message   string // human-friendly application output (debug/troubleshooting)
 	Error     error  // *internal* error
@@ -70,15 +70,14 @@ func (r *Result) Fail(ru *Rule, e error) {
 
 func (r *Result) Skip(ru *Rule) {
 	r.Status = append(r.Status, Report{
-		Ref:   ru,
-		Valid: false,
+		Ref:     ru,
+		Skipped: true,
 	})
 }
 
 func (r *Result) Applied(ru *Rule, satisfied bool, message string) {
 	r.Status = append(r.Status, Report{
 		Ref:       ru,
-		Valid:     true,
 		Satisfied: satisfied,
 		Message:   message,
 	})
@@ -91,20 +90,33 @@ func (r *Result) Succeeded() bool {
 	return !r.failed
 }
 
+// checks if a report needs to be translated to a StatusCause, and if so
+// return the message describing the cause
+func needsCause(rr *Report) (bool, string) {
+	if rr.Error != nil {
+		// internal errors need explanation
+		return true, fmt.Sprintf("%v", rr.Error)
+	}
+	// rules we should check, and which failed (external errors?)
+	if !rr.Skipped && !rr.Satisfied {
+		return true, rr.Message
+	}
+	return false, ""
+}
+
 func (r *Result) ToStatusCauses() []metav1.StatusCause {
 	var causes []metav1.StatusCause
 	if !r.failed {
 		return causes
 	}
 	for _, rr := range r.Status {
-		if !rr.Valid || rr.Satisfied {
-			continue
+		if ok, message := needsCause(&rr); ok {
+			causes = append(causes, metav1.StatusCause{
+				Type:    metav1.CauseTypeFieldValueInvalid,
+				Field:   TrimJSONPath(rr.Ref.Path),
+				Message: fmt.Sprintf("%s: %s", rr.Ref.Message, message),
+			})
 		}
-		causes = append(causes, metav1.StatusCause{
-			Type:    metav1.CauseTypeFieldValueInvalid,
-			Field:   TrimJSONPath(rr.Ref.Path),
-			Message: fmt.Sprintf("%s: %s", rr.Ref.Message, rr.Message),
-		})
 	}
 	return causes
 }

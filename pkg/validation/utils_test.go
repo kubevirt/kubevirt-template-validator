@@ -55,3 +55,47 @@ spec:
 	}
 	return &vm
 }
+
+func NewVMTestSmall() *k6tv1.VirtualMachine {
+	vm := k6tv1.VirtualMachine{}
+	b := bytes.NewBufferString(`
+apiVersion: kubevirt.io/v1alpha3
+kind: VirtualMachine
+metadata:
+  creationTimestamp: null
+  labels:
+    kubevirt.io/vm: vm-test-small
+  name: vm-test-small
+  annotations:
+    vm.cnv.io/template: fedora-generic-small-with-rules
+    vm.cnv.io/template-namespace: default
+spec:
+  running: false
+  template:
+    metadata:
+      creationTimestamp: null
+      labels:
+        kubevirt.io/vm: vm-test-small
+    spec:
+      domain:
+        devices:
+          interfaces:
+          - name: default
+            bridge: {}
+        machine:
+          type: "q35"
+        resources:
+          requests:
+            memory: 128M
+      networks:
+      - name: default
+        pod: {}
+      terminationGracePeriodSeconds: 0
+status: {}`)
+	decoder := yaml.NewYAMLOrJSONDecoder(b, 1024) // FIXME explain magic number
+	err := decoder.Decode(&vm)
+	if err != nil {
+		panic(err)
+	}
+	return &vm
+}

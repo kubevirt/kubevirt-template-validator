@@ -98,7 +98,7 @@ var _ = Describe("Eval", func() {
 
 			Expect(res.Succeeded()).To(BeTrue())
 			Expect(len(res.Status)).To(Equal(1))
-			Expect(res.Status[0].Valid).To(BeFalse())
+			Expect(res.Status[0].Skipped).To(BeTrue())
 			Expect(res.Status[0].Satisfied).To(BeFalse())
 			Expect(res.Status[0].Error).To(BeNil())
 		})
@@ -177,6 +177,41 @@ var _ = Describe("Eval", func() {
 				Expect(res.Status[ix].Satisfied).To(BeTrue())
 				Expect(res.Status[ix].Error).To(BeNil())
 			}
+		})
+
+		It("Should fail until https://github.com/fromanirh/kubevirt-template-validator/issues/2 is solved with uninitialized paths", func() {
+			rules := []validation.Rule{
+				validation.Rule{
+					Rule:    "integer",
+					Name:    "EnoughMemory",
+					Path:    "jsonpath::.spec.domain.resources.requests.memory",
+					Message: "Memory size not specified",
+					Min:     64 * 1024 * 1024,
+					Max:     512 * 1024 * 1024,
+				},
+				validation.Rule{
+					Rule:    "integer",
+					Name:    "LimitCores",
+					Path:    "jsonpath::.spec.domain.cpu.cores",
+					Message: "Core amount not within range",
+					Min:     1,
+					Max:     4,
+				},
+				validation.Rule{
+					Rule:    "enum",
+					Name:    "SupportedChipset",
+					Path:    "jsonpath::.spec.domain.machine.type",
+					Message: "machine type must be a supported value",
+					Values:  []string{"q35"},
+				},
+			}
+
+			ev := validation.Evaluator{Sink: GinkgoWriter}
+			res := ev.Evaluate(rules, vmCirros)
+			Expect(res.Succeeded()).To(BeFalse())
+
+			causes := res.ToStatusCauses()
+			Expect(len(causes)).To(Equal(1))
 		})
 	})
 })

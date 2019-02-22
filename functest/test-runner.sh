@@ -6,8 +6,12 @@ for testscript in $( ls ??-test-*.sh); do
 	if ./$testscript; then
 		printf "%-64s: OK\n" "$testname"
 	else
-		printf "%-64s: FAILED\n" "$testname"
-		exit 1
+		if [ "$?" == "99" ] ; then
+			printf "%-64s: SKIP\n" "$testname"
+		else
+			printf "%-64s: FAILED\n" "$testname"
+			exit 1
+		fi
 	fi
 done
 exit 0

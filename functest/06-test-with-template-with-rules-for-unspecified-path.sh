@@ -12,5 +12,5 @@
 #
 #$KUBECTL delete -f manifests/template-with-rules.yaml
 #exit $RET
-exit 0
+exit 99
 } &> /dev/null

@@ -45,18 +45,9 @@ metadata:
           "max": 536870912
         },
         {
-          "name": "LimitCores",
-          "path": "jsonpath::.spec.domain.cpu.cores",
-          "message": "Core amount not within range",
-          "rule": "integer",
-          "min": 1,
-          "max": 4,
-        },
-        {
           "name": "SupportedChipset",
           "path": "jsonpath::.spec.domain.machine.type",
-          "message": "Machine type is a supported value",
-          "rule": "enum",
+          "rule": "value-set",
           "values": ["q35"]
         }
       ]

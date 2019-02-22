@@ -3,15 +3,15 @@ kind: VirtualMachine
 metadata:
   creationTimestamp: null
   labels:
-    kubevirt.io/vm: vm-test-00
-  name: vm-test-00
+    kubevirt.io/vm: vm-test-01
+  name: vm-test-01
 spec:
   running: false
   template:
     metadata:
       creationTimestamp: null
       labels:
-        kubevirt.io/vm: vm-test-00
+        kubevirt.io/vm: vm-test-01
     spec:
       domain:
         devices:

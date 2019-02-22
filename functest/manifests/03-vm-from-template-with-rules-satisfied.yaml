@@ -3,8 +3,8 @@ kind: VirtualMachine
 metadata:
   creationTimestamp: null
   labels:
-    kubevirt.io/vm: vm-test-02
-  name: vm-test-02
+    kubevirt.io/vm: vm-test-03
+  name: vm-test-03
   annotations:
     vm.cnv.io/template: fedora-generic-small-with-rules
     vm.cnv.io/template-namespace: default 
@@ -14,9 +14,11 @@ spec:
     metadata:
       creationTimestamp: null
       labels:
-        kubevirt.io/vm: vm-test-02
+        kubevirt.io/vm: vm-test-03
     spec:
       domain:
+        cpu:
+          cores: 2
         devices:
           interfaces:
           - name: default

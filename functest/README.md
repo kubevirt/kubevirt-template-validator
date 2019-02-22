@@ -13,3 +13,7 @@
 ```bash
 ./test-runner.sh
 ```
+
+## TODO
+- run the tests in a new namespace?
+- remove (stale/bogus) reference to cirros to the functest manifests.

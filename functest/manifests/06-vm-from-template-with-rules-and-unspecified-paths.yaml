@@ -3,10 +3,10 @@ kind: VirtualMachine
 metadata:
   creationTimestamp: null
   labels:
-    kubevirt.io/vm: vm-test-01
-  name: vm-test-01
+    kubevirt.io/vm: vm-test-06
+  name: vm-test-06
   annotations:
-    vm.cnv.io/template: fedora-generic-small
+    vm.cnv.io/template: fedora-generic-small-with-rules
     vm.cnv.io/template-namespace: default 
 spec:
   running: false
@@ -14,7 +14,7 @@ spec:
     metadata:
       creationTimestamp: null
       labels:
-        kubevirt.io/vm: vm-test-01
+        kubevirt.io/vm: vm-test-06
     spec:
       domain:
         devices:
@@ -22,10 +22,10 @@ spec:
           - name: default
             bridge: {}
         machine:
-          type: ""
+          type: "q35"
         resources:
           requests:
-            memory: 64M
+            memory: 128M
       networks:
       - name: default
         pod: {}

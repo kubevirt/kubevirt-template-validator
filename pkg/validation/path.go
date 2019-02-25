@@ -113,7 +113,7 @@ func (p *Path) AsInt64() ([]int64, error) {
 		res := p.results[i]
 		for j := range res {
 			obj := res[j].Interface()
-			if intObj, ok := obj.(int64); ok {
+			if intObj, ok := toInt64(obj); ok {
 				ret = append(ret, intObj)
 				continue
 			}

@@ -20,7 +20,6 @@ package validation
 
 import (
 	"fmt"
-	"math"
 	"reflect"
 	"regexp"
 	"strings"
@@ -114,29 +113,8 @@ type intRule struct {
 }
 
 func decodeInt64(obj interface{}, vm *k6tv1.VirtualMachine) (int64, error) {
-	if intVal, ok := obj.(int); ok {
-		return int64(intVal), nil
-	}
-	if intVal, ok := obj.(int32); ok {
-		return int64(intVal), nil
-	}
-	if intVal, ok := obj.(int64); ok {
-		return int64(intVal), nil
-	}
-	if intVal, ok := obj.(uint); ok {
-		return int64(intVal), nil
-	}
-	if intVal, ok := obj.(uint32); ok {
-		return int64(intVal), nil
-	}
-	if intVal, ok := obj.(uint64); ok {
-		return int64(intVal), nil
-	}
-	if floatVal, ok := obj.(float32); ok {
-		return int64(math.Round(float64(floatVal))), nil
-	}
-	if floatVal, ok := obj.(float64); ok {
-		return int64(math.Round(floatVal)), nil
+	if val, ok := toInt64(obj); ok {
+		return val, nil
 	}
 	if strVal, ok := obj.(string); ok && isJSONPath(strVal) {
 		p, err := NewPath(strVal)

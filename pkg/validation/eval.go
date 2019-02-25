@@ -129,6 +129,25 @@ func NewEvaluator() *Evaluator {
 	return &Evaluator{Sink: ioutil.Discard}
 }
 
+func (ev *Evaluator) isRuleWellFormed(r *Rule, names map[string]int) (bool, error) {
+	names[r.Name] += 1
+	if names[r.Name] > 1 {
+		fmt.Fprintf(ev.Sink, "%s failed: duplicate name\n", r.Name)
+		return false, ErrDuplicateRuleName
+	}
+
+	if !isValidRule(r.Rule) {
+		fmt.Fprintf(ev.Sink, "%s failed: invalid type\n", r.Name)
+		return false, ErrUnrecognizedRuleType
+	}
+
+	if r.Path == "" || r.Message == "" {
+		fmt.Fprintf(ev.Sink, "%s failed: missing keys\n", r.Name)
+		return false, ErrMissingRequiredKey
+	}
+	return true, nil
+}
+
 // Evaluate applies *all* the rules (greedy evaluation) to the given VM.
 // Returns a Report for each applied Rule, but ordering isn't guaranteed.
 // Use Report.Ref to crosslink Reports with Rules.
@@ -144,22 +163,12 @@ func (ev *Evaluator) Evaluate(rules []Rule, vm *k6tv1.VirtualMachine) *Result {
 	for i := range rules {
 		r := &rules[i]
 
-		names[r.Name] += 1
-		if names[r.Name] > 1 {
-			fmt.Fprintf(ev.Sink, "%s failed: duplicate name\n", r.Name)
-			result.Fail(r, ErrDuplicateRuleName)
-			continue
-		}
-
-		if !isValidRule(r.Rule) {
-			fmt.Fprintf(ev.Sink, "%s failed: invalid type\n", r.Name)
-			result.Fail(r, ErrUnrecognizedRuleType)
-			continue
-		}
-
-		if r.Path == "" || r.Message == "" {
-			fmt.Fprintf(ev.Sink, "%s failed: missing keys\n", r.Name)
-			result.Fail(r, ErrMissingRequiredKey)
+		// we reject let all validation fail if a rule is not well formed (e.g. syntax error)
+		// to let the cluster admin quickly identify the error in the rules. Otherwise, it
+		// we simply skip the malformed rule, the error can go unnoticed.
+		// IOW, this is a policy decision
+		if ok, err := ev.isRuleWellFormed(r, names); !ok {
+			result.Fail(r, err)
 			continue
 		}
 

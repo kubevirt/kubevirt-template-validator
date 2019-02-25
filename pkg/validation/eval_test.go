@@ -179,6 +179,30 @@ var _ = Describe("Eval", func() {
 			}
 		})
 
+		It("Should fail applying a ruleset with at least one malformed rule", func() {
+			rules := []validation.Rule{
+				validation.Rule{
+					Rule:    "integer",
+					Name:    "EnoughMemory",
+					Path:    "jsonpath::.spec.domain.resources.requests.memory",
+					Message: "Memory size not specified",
+					Min:     64 * 1024 * 1024,
+					Max:     512 * 1024 * 1024,
+				},
+				validation.Rule{
+					Rule:    "value-set",
+					Name:    "SupportedChipset",
+					Path:    "jsonpath::.spec.domain.machine.type",
+					Message: "machine type must be a supported value",
+					Values:  []string{"q35"},
+				},
+			}
+
+			ev := validation.Evaluator{Sink: GinkgoWriter}
+			res := ev.Evaluate(rules, vmCirros)
+			Expect(res.Succeeded()).To(BeFalse())
+		})
+
 		It("Should fail until https://github.com/fromanirh/kubevirt-template-validator/issues/2 is solved with uninitialized paths", func() {
 			rules := []validation.Rule{
 				validation.Rule{

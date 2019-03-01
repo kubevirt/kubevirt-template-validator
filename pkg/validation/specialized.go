@@ -28,21 +28,21 @@ import (
 )
 
 type RuleApplier interface {
-	Apply(vm *k6tv1.VirtualMachine) (bool, error)
+	Apply(vm, ref *k6tv1.VirtualMachine) (bool, error)
 	String() string
 }
 
 // we need a vm reference to specialize a rule because few key fields may
 // be JSONPath, and we need to walk them to get e.g. the value to check,
 // or the limits to enforce.
-func (r *Rule) Specialize(vm *k6tv1.VirtualMachine) (RuleApplier, error) {
+func (r *Rule) Specialize(vm, ref *k6tv1.VirtualMachine) (RuleApplier, error) {
 	switch r.Rule {
 	case "integer":
-		return NewIntRule(r, vm)
+		return NewIntRule(r, vm, ref)
 	case "string":
-		return NewStringRule(r, vm)
+		return NewStringRule(r, vm, ref)
 	case "enum":
-		return NewEnumRule(r, vm)
+		return NewEnumRule(r, vm, ref)
 	case "regex":
 		return NewRegexRule(r, vm)
 	}
@@ -56,9 +56,9 @@ type Range struct {
 	Max    int64
 }
 
-func (r *Range) Decode(Min, Max interface{}, vm *k6tv1.VirtualMachine) error {
+func (r *Range) Decode(Min, Max interface{}, vm, ref *k6tv1.VirtualMachine) error {
 	if Min != nil {
-		v, err := decodeInt64(Min, vm)
+		v, err := decodeInt64(Min, vm, ref)
 		if err != nil {
 			return err
 		}
@@ -66,7 +66,7 @@ func (r *Range) Decode(Min, Max interface{}, vm *k6tv1.VirtualMachine) error {
 		r.MinSet = true
 	}
 	if Max != nil {
-		v, err := decodeInt64(Max, vm)
+		v, err := decodeInt64(Max, vm, ref)
 
 		if err != nil {
 			return err
@@ -112,10 +112,43 @@ type intRule struct {
 	Satisfied bool
 }
 
-func decodeInt64(obj interface{}, vm *k6tv1.VirtualMachine) (int64, error) {
+// JSONPATH lookup logic, aka what this "ref" object and why we need it
+//
+// When we need to fetch the value of a Rule.Path which happens to be a JSONPath,
+// first we just try if the given VM object has the path we need.
+// If the lookup succeeds, everyone's happy and we stop here.
+// Else, the vm obj has not the path we were looking for.
+// It could be either:
+// - the path is bogus. We check lazily, so this is the first time we see this
+//   and we need to make a decision. But mayne
+// - the path is legal, but it refers to an optional subpath which is missing.
+//   so we try again with the zero-initialized "reference" object.
+//   if even this lookup fails, we mark the path as bogus.
+//   Otherwise we use the zero, default, value for our logic.
+
+func decodeInt64(obj interface{}, vm, ref *k6tv1.VirtualMachine) (int64, error) {
 	if val, ok := toInt64(obj); ok {
 		return val, nil
 	}
+	v, err := decodeInt64FromJSONPath(obj, vm)
+	if err != nil {
+		v, err = decodeInt64FromJSONPath(obj, ref)
+	}
+	return v, err
+}
+
+func decodeString(s string, vm, ref *k6tv1.VirtualMachine) (string, error) {
+	if !isJSONPath(s) {
+		return s, nil
+	}
+	v, err := decodeJSONPathString(s, vm)
+	if err != nil {
+		v, err = decodeJSONPathString(s, ref)
+	}
+	return v, err
+}
+
+func decodeInt64FromJSONPath(obj interface{}, vm *k6tv1.VirtualMachine) (int64, error) {
 	if strVal, ok := obj.(string); ok && isJSONPath(strVal) {
 		p, err := NewPath(strVal)
 		if err != nil {
@@ -137,10 +170,7 @@ func decodeInt64(obj interface{}, vm *k6tv1.VirtualMachine) (int64, error) {
 	return 0, fmt.Errorf("Unsupported type %v (%v)", obj, reflect.TypeOf(obj).Name())
 }
 
-func decodeString(s string, vm *k6tv1.VirtualMachine) (string, error) {
-	if !isJSONPath(s) {
-		return s, nil
-	}
+func decodeJSONPathString(s string, vm *k6tv1.VirtualMachine) (string, error) {
 	p, err := NewPath(s)
 	if err != nil {
 		return "", err
@@ -160,21 +190,21 @@ func decodeString(s string, vm *k6tv1.VirtualMachine) (string, error) {
 	return vals[0], nil
 }
 
-func NewIntRule(r *Rule, vm *k6tv1.VirtualMachine) (RuleApplier, error) {
+func NewIntRule(r *Rule, vm, ref *k6tv1.VirtualMachine) (RuleApplier, error) {
 	ir := intRule{Ref: r}
-	err := ir.Value.Decode(r.Min, r.Max, vm)
+	err := ir.Value.Decode(r.Min, r.Max, vm, ref)
 	if err != nil {
 		return nil, err
 	}
 	return &ir, nil
 }
 
-func (ir *intRule) Apply(vm *k6tv1.VirtualMachine) (bool, error) {
-	var err error
-	ir.Current, err = decodeInt64(ir.Ref.Path, vm)
+func (ir *intRule) Apply(vm, ref *k6tv1.VirtualMachine) (bool, error) {
+	v, err := decodeInt64(ir.Ref.Path, vm, ref)
 	if err != nil {
 		return false, err
 	}
+	ir.Current = v
 	ir.Satisfied = ir.Value.Includes(ir.Current)
 	return ir.Satisfied, nil
 }
@@ -190,21 +220,21 @@ type stringRule struct {
 	Satisfied bool
 }
 
-func NewStringRule(r *Rule, vm *k6tv1.VirtualMachine) (RuleApplier, error) {
+func NewStringRule(r *Rule, vm, ref *k6tv1.VirtualMachine) (RuleApplier, error) {
 	sr := stringRule{Ref: r}
-	err := sr.Length.Decode(r.MinLength, r.MaxLength, vm)
+	err := sr.Length.Decode(r.MinLength, r.MaxLength, vm, ref)
 	if err != nil {
 		return nil, err
 	}
 	return &sr, nil
 }
 
-func (sr *stringRule) Apply(vm *k6tv1.VirtualMachine) (bool, error) {
-	var err error
-	sr.Current, err = decodeString(sr.Ref.Path, vm)
+func (sr *stringRule) Apply(vm, ref *k6tv1.VirtualMachine) (bool, error) {
+	v, err := decodeString(sr.Ref.Path, vm, ref)
 	if err != nil {
 		return false, err
 	}
+	sr.Current = v
 	sr.Satisfied = sr.Length.Includes(int64(len(sr.Current)))
 	return sr.Satisfied, nil
 }
@@ -220,10 +250,10 @@ type enumRule struct {
 	Satisfied bool
 }
 
-func NewEnumRule(r *Rule, vm *k6tv1.VirtualMachine) (RuleApplier, error) {
+func NewEnumRule(r *Rule, vm, ref *k6tv1.VirtualMachine) (RuleApplier, error) {
 	er := enumRule{Ref: r}
 	for _, v := range r.Values {
-		s, err := decodeString(v, vm)
+		s, err := decodeString(v, vm, ref)
 		if err != nil {
 			return nil, err
 		}
@@ -232,12 +262,12 @@ func NewEnumRule(r *Rule, vm *k6tv1.VirtualMachine) (RuleApplier, error) {
 	return &er, nil
 }
 
-func (er *enumRule) Apply(vm *k6tv1.VirtualMachine) (bool, error) {
-	var err error
-	er.Current, err = decodeString(er.Ref.Path, vm)
+func (er *enumRule) Apply(vm, ref *k6tv1.VirtualMachine) (bool, error) {
+	v, err := decodeString(er.Ref.Path, vm, ref)
 	if err != nil {
 		return false, err
 	}
+	er.Current = v
 	for _, v := range er.Values {
 		if er.Current == v {
 			er.Satisfied = true
@@ -270,12 +300,12 @@ func NewRegexRule(r *Rule, vm *k6tv1.VirtualMachine) (RuleApplier, error) {
 	}, nil
 }
 
-func (rr *regexRule) Apply(vm *k6tv1.VirtualMachine) (bool, error) {
-	var err error
-	rr.Current, err = decodeString(rr.Ref.Path, vm)
+func (rr *regexRule) Apply(vm, ref *k6tv1.VirtualMachine) (bool, error) {
+	v, err := decodeString(rr.Ref.Path, vm, ref)
 	if err != nil {
 		return false, err
 	}
+	rr.Current = v
 	rr.Satisfied, err = regexp.MatchString(rr.Regex, rr.Current)
 	return rr.Satisfied, err
 }

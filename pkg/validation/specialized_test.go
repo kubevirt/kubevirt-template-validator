@@ -6,6 +6,7 @@ import (
 
 	k6tv1 "kubevirt.io/kubevirt/pkg/api/v1"
 
+	k6tobjs "github.com/fromanirh/kubevirt-template-validator/pkg/kubevirtobjs"
 	"github.com/fromanirh/kubevirt-template-validator/pkg/validation"
 )
 
@@ -14,10 +15,12 @@ var _ = Describe("Specialized", func() {
 
 		var (
 			vmCirros *k6tv1.VirtualMachine
+			vmRef    *k6tv1.VirtualMachine
 		)
 
 		BeforeEach(func() {
 			vmCirros = NewVMCirros()
+			vmRef = k6tobjs.NewDefaultVirtualMachine()
 		})
 
 		It("Should detect bogus rules", func() {
@@ -31,7 +34,7 @@ var _ = Describe("Specialized", func() {
 				Max:     512 * 1024 * 1024,
 			}
 
-			ra, err := r.Specialize(vmCirros)
+			ra, err := r.Specialize(vmCirros, vmRef)
 			Expect(err).To(Not(BeNil()))
 			Expect(ra).To(BeNil())
 		})
@@ -41,10 +44,12 @@ var _ = Describe("Specialized", func() {
 
 		var (
 			vmCirros *k6tv1.VirtualMachine
+			vmRef    *k6tv1.VirtualMachine
 		)
 
 		BeforeEach(func() {
 			vmCirros = NewVMCirros()
+			vmRef = k6tobjs.NewDefaultVirtualMachine()
 		})
 
 		It("Should apply simple integer rules", func() {
@@ -57,7 +62,7 @@ var _ = Describe("Specialized", func() {
 				Max:     512 * 1024 * 1024,
 			}
 
-			checkRuleApplication(&r, vmCirros, true)
+			checkRuleApplication(&r, vmCirros, vmRef, true)
 		})
 
 		It("Should apply simple string rules", func() {
@@ -69,7 +74,7 @@ var _ = Describe("Specialized", func() {
 				MinLength: 1,
 				MaxLength: 32,
 			}
-			checkRuleApplication(&r, vmCirros, true)
+			checkRuleApplication(&r, vmCirros, vmRef, true)
 		})
 
 		It("Should apply simple enum rules", func() {
@@ -80,7 +85,7 @@ var _ = Describe("Specialized", func() {
 				Message: "machine type must be a supported value",
 				Values:  []string{"q35"},
 			}
-			checkRuleApplication(&r, vmCirros, true)
+			checkRuleApplication(&r, vmCirros, vmRef, true)
 		})
 
 		It("Should apply simple regex rules", func() {
@@ -91,7 +96,7 @@ var _ = Describe("Specialized", func() {
 				Message: "machine type must be a supported value",
 				Regex:   "q35|440fx",
 			}
-			checkRuleApplication(&r, vmCirros, true)
+			checkRuleApplication(&r, vmCirros, vmRef, true)
 
 		})
 	})
@@ -100,10 +105,12 @@ var _ = Describe("Specialized", func() {
 
 		var (
 			vmCirros *k6tv1.VirtualMachine
+			vmRef    *k6tv1.VirtualMachine
 		)
 
 		BeforeEach(func() {
 			vmCirros = NewVMCirros()
+			vmRef = k6tobjs.NewDefaultVirtualMachine()
 		})
 
 		It("Should fail simple integer rules", func() {
@@ -115,7 +122,7 @@ var _ = Describe("Specialized", func() {
 				Valid:   "jsonpath::.spec.domain.this.path.does.not.exist",
 				Min:     512 * 1024 * 1024,
 			}
-			checkRuleApplication(&r1, vmCirros, false)
+			checkRuleApplication(&r1, vmCirros, vmRef, false)
 
 			r2 := validation.Rule{
 				Rule:    "integer",
@@ -125,7 +132,7 @@ var _ = Describe("Specialized", func() {
 				Valid:   "jsonpath::.spec.domain.this.path.does.not.exist",
 				Max:     64 * 1024 * 1024,
 			}
-			checkRuleApplication(&r2, vmCirros, false)
+			checkRuleApplication(&r2, vmCirros, vmRef, false)
 		})
 
 		It("Should apply simple string rules", func() {
@@ -136,7 +143,7 @@ var _ = Describe("Specialized", func() {
 				Message:   "machine type must be specified",
 				MinLength: 64,
 			}
-			checkRuleApplication(&r1, vmCirros, false)
+			checkRuleApplication(&r1, vmCirros, vmRef, false)
 
 			r2 := validation.Rule{
 				Rule:      "string",
@@ -145,7 +152,7 @@ var _ = Describe("Specialized", func() {
 				Message:   "machine type must be specified",
 				MaxLength: 1,
 			}
-			checkRuleApplication(&r2, vmCirros, false)
+			checkRuleApplication(&r2, vmCirros, vmRef, false)
 
 		})
 
@@ -157,7 +164,7 @@ var _ = Describe("Specialized", func() {
 				Message: "machine type must be a supported value",
 				Values:  []string{"foo", "bar"},
 			}
-			checkRuleApplication(&r, vmCirros, false)
+			checkRuleApplication(&r, vmCirros, vmRef, false)
 		})
 
 		It("Should apply simple regex rules", func() {
@@ -168,20 +175,20 @@ var _ = Describe("Specialized", func() {
 				Message: "machine type must be a supported value",
 				Regex:   "\\d[a-z]+\\d\\d",
 			}
-			checkRuleApplication(&r, vmCirros, false)
+			checkRuleApplication(&r, vmCirros, vmRef, false)
 
 		})
 	})
 
 })
 
-func checkRuleApplication(r *validation.Rule, vm *k6tv1.VirtualMachine, expected bool) {
+func checkRuleApplication(r *validation.Rule, vm, ref *k6tv1.VirtualMachine, expected bool) {
 
-	ra, err := r.Specialize(vm)
+	ra, err := r.Specialize(vm, ref)
 	Expect(err).To(BeNil())
 	Expect(ra).To(Not(BeNil()))
 
-	ok, err := ra.Apply(vm)
+	ok, err := ra.Apply(vm, ref)
 	Expect(err).To(BeNil())
 	Expect(ok).To(Equal(expected))
 }

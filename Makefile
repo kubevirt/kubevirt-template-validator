@@ -4,10 +4,10 @@ docker: binary
 	docker build .
 
 dockertag: binary
-	./hack/docker/tag.sh
+	./hack/container/docker-tag.sh
 
 dockerpush: binary
-	./hack/docker/push.sh
+	./hack/container/docker-push.sh
 
 vendor:
 	dep ensure

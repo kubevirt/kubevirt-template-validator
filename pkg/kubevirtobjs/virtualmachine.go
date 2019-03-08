@@ -88,6 +88,7 @@ func newInterfaces(num, ports uint) ([]k6tv1.Interface, error) {
 }
 
 // NewDomainSpec returns a fully zero-value DomainSpec with all optional fields, or error if requested parameters exceeds limits
+// TODO: build using instrospection (aka the reflect package)
 func NewDomainSpec(numDisks, numIfaces, numPortsPerIface uint) (*k6tv1.DomainSpec, error) {
 	var err error
 

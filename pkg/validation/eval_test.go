@@ -35,7 +35,7 @@ var _ = Describe("Eval", func() {
 			res := validation.NewEvaluator().Evaluate(rules, &vm)
 			Expect(res.Succeeded()).To(BeFalse())
 			Expect(len(res.Status)).To(Equal(2))
-			Expect(res.Status[0].Error).To(Not(BeNil()))
+			Expect(res.Status[0].Error).To(BeNil())
 			Expect(res.Status[1].Error).To(Equal(validation.ErrDuplicateRuleName))
 
 		})
@@ -104,7 +104,6 @@ var _ = Describe("Eval", func() {
 		})
 	})
 
-	/* TODO: fix Path before
 	Context("With an initialized VM object", func() {
 		var (
 			vmCirros *k6tv1.VirtualMachine
@@ -112,6 +111,30 @@ var _ = Describe("Eval", func() {
 
 		BeforeEach(func() {
 			vmCirros = NewVMCirros()
+		})
+
+		It("should handle skip uninitialized paths if requested", func() {
+			rules := []validation.Rule{
+				validation.Rule{
+					Name:    "LimitCores",
+					Rule:    "integer",
+					Path:    "jsonpath::.spec.domain.cpu.cores",
+					Valid:   "jsonpath::.spec.domain.cpu.cores",
+					Message: "testing",
+					Min:     1,
+					Max:     8,
+				},
+			}
+
+			ev := validation.Evaluator{Sink: GinkgoWriter}
+			res := ev.Evaluate(rules, vmCirros)
+
+			Expect(res.Succeeded()).To(BeTrue())
+			Expect(len(res.Status)).To(Equal(1))
+			Expect(res.Status[0].Skipped).To(BeTrue())
+			Expect(res.Status[0].Satisfied).To(BeFalse())
+			Expect(res.Status[0].Error).To(BeNil())
+
 		})
 
 		It("should handle uninitialized paths", func() {
@@ -129,11 +152,9 @@ var _ = Describe("Eval", func() {
 			ev := validation.Evaluator{Sink: GinkgoWriter}
 			res := ev.Evaluate(rules, vmCirros)
 
-			Expect(res.Succeeded()).To(BeTrue())
-			Expect(len(res.Status)).To(Equal(1))
+			Expect(res.Succeeded()).To(BeFalse())
 		})
 	})
-	*/
 
 	Context("With valid rule set", func() {
 

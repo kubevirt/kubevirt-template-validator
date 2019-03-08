@@ -27,6 +27,8 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	k6tv1 "kubevirt.io/kubevirt/pkg/api/v1"
+
+	k6tobjs "github.com/fromanirh/kubevirt-template-validator/pkg/kubevirtobjs"
 )
 
 var (
@@ -160,6 +162,8 @@ func (ev *Evaluator) Evaluate(rules []Rule, vm *k6tv1.VirtualMachine) *Result {
 	names := make(map[string]int)
 	result := Result{}
 
+	refVm := k6tobjs.NewDefaultVirtualMachine()
+
 	for i := range rules {
 		r := &rules[i]
 
@@ -186,14 +190,14 @@ func (ev *Evaluator) Evaluate(rules []Rule, vm *k6tv1.VirtualMachine) *Result {
 			continue
 		}
 
-		ra, err := r.Specialize(vm)
+		ra, err := r.Specialize(vm, refVm)
 		if err != nil {
 			fmt.Fprintf(ev.Sink, "%s failed: cannot specialize: %v\n", r.Name, err)
 			result.Fail(r, err)
 			continue
 		}
 
-		satisfied, err := ra.Apply(vm)
+		satisfied, err := ra.Apply(vm, refVm)
 		if err != nil {
 			fmt.Fprintf(ev.Sink, "%s failed: cannot apply: %v\n", r.Name, err)
 			result.Fail(r, err)

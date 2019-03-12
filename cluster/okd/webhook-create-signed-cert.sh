@@ -3,7 +3,7 @@
 
 set -e
 
-[ -z ${KUBECTL} ] && KUBECTL="kubectl"
+[ -z ${KUBECTL} ] && KUBECTL="oc"
 
 usage() {
     cat <<EOF
@@ -49,11 +49,11 @@ while [[ $# -gt 0 ]]; do
     shift
 done
 
-[ -z ${KUBECTL} ] && KUBECTL=kubectl
+[ -z ${KUBECTL} ] && KUBECTL=oc
+[ -z ${namespace} ] && namespace=kubevirt
 
 [ -z ${service} ] && service=virtualmachine-template-validator
 [ -z ${secret} ] && secret=virtualmachine-template-validator-certs
-[ -z ${namespace} ] && namespace=kubevirt
 
 if [ ! -x "$(command -v openssl)" ]; then
     echo "openssl not found"

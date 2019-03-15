@@ -78,6 +78,8 @@ EOF
 openssl genrsa -out ${tmpdir}/server-key.pem 2048
 openssl req -new -key ${tmpdir}/server-key.pem -subj "/CN=${service}.${namespace}.svc" -out ${tmpdir}/server.csr -config ${tmpdir}/csr.conf
 
+base64 < ${tmpdir}/server-key.pem > ${tmpdir}/server-key.pem.b64
+
 # create  server cert/key CSR and  send to k8s API
 cat <<EOF> ${tmpdir}/webhook-csr.yaml
 apiVersion: certificates.k8s.io/v1beta1
@@ -96,8 +98,10 @@ EOF
 
 echo -e "{"
 echo -e "\t\"serverkey\": \"${tmpdir}/server-key.pem\","
+echo -e "\t\"serverkeyb64\": \"${tmpdir}/server-key.pem.b64\","
 echo -e "\t\"servercsr\": \"${tmpdir}/server.csr\","
 echo -e "\t\"webhookcsr\": \"${tmpdir}/webhook-csr.yaml\""
 echo -e "\t\"csrname\": \"${csrName}\""
 echo -e "\t\"basedir\": \"${tmpdir}\""
+echo -e "\t\"secret\": \"${secret}\""
 echo -e "}"

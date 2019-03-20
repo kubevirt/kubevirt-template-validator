@@ -67,8 +67,8 @@ metadata:
     kubevirt.io/vm: vm-test-small
   name: vm-test-small
   annotations:
-    vm.cnv.io/template: fedora-generic-small-with-rules
-    vm.cnv.io/template-namespace: default
+    vm.kubevirt.io/template: fedora-generic-small-with-rules
+    vm.kubevirt.io/template-namespace: default
 spec:
   running: false
   template:

@@ -6,8 +6,8 @@ metadata:
     kubevirt.io/vm: vm-test-06
   name: vm-test-06
   annotations:
-    vm.cnv.io/template: fedora-generic-small-with-rules
-    vm.cnv.io/template-namespace: default 
+    vm.kubevirt.io/template: fedora-generic-small-with-rules
+    vm.kubevirt.io/template-namespace: default
 spec:
   running: false
   template:

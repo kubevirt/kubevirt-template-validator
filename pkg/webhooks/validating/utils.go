@@ -32,8 +32,8 @@ import (
 )
 
 const (
-	annotationTemplateNameKey      string = "vm.cnv.io/template"
-	annotationTemplateNamespaceKey string = "vm.cnv.io/template-namespace"
+	annotationTemplateNameKey      string = "vm.kubevirt.io/template"
+	annotationTemplateNamespaceKey string = "vm.kubevirt.io/template-namespace"
 	annotationValidationKey        string = "validations"
 )
 

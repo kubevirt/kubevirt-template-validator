@@ -52,6 +52,8 @@ spec:
       name: virtualmachine-template-validator 
       labels:
         kubevirt.io: virtualmachine-template-validator
+      annotations:
+        service.alpha.openshift.io/serving-cert-secret-name: "virtualmachine-template-validator-certs"
     spec:
       serviceAccountName: template-validator
       containers:
@@ -68,8 +70,8 @@ spec:
           args:
             - -v=2
             - --port=8443
-            - --cert-file=/etc/webhook/certs/cert.pem
-            - --key-file=/etc/webhook/certs/key.pem
+            - --cert-file=/etc/webhook/certs/tls.crt
+            - --key-file=/etc/webhook/certs/tls.key
           volumeMounts:
             - name: virtualmachine-template-validator-certs
               mountPath: /etc/webhook/certs

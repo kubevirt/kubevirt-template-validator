@@ -83,7 +83,7 @@ spec:
             containerPort: 8443
             protocol: TCP
       volumes:
-        - name: kubevirt-template-validator-certs
+        - name: tls
           secret:
-            secretName: tls
+            secretName: kubevirt-template-validator-certs
 

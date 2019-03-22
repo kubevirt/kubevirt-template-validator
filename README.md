@@ -14,65 +14,57 @@ Apache v2
 * [kubernetes APIs](https://github.com/kubernetes/kubernetes)
 
 
-## Installation
+## Installation - K8S
 
-You need to pick the platform on which you want to install.
-For kubernetes:
+**PLEASE NOTE**: vanilla kubernetes **does not support openshift template (obviously)** so the webhook
+cannot function properly. Anyway, if you want to install it in your kubernetes cluster anyway, follow these steps:
+
+1. Create and deploy the certificates in a Kubernetes Secret, to be used in the following steps:
 ```bash
-export PLATFORM=k8s
-```
-for OKD/OCP:
-```bash
-export PLATFORM=okd
+./cluster/k8s/webhook-create-signed-cert.sh
 ```
 
-now you can set which tool you need to use to interact with the cluster. Usually:
-for kubernetes:
+2. [OPTIONAL] Check that the secret exists:
 ```bash
-export KUBECTL=kubectl
+kubectl get secret -n kubevirt kubevirt-template-validator-certs
+NAME                                TYPE      DATA      AGE
+kubevirt-template-validator-certs   Opaque    2         1h
 ```
-for OKD/OCP:
+
+3. Deploy the service:
 ```bash
-export KUBECTL=oc
+kubectl create -f ./cluster/k8s/manifests/service.yaml
 ```
+
+4. Register the webhook. In order to set up the webhook, we need a CA bundle. We can reuse the one from the certs we create from the step #1.
+```bash
+cat ./cluster/k8s/manifests/validating-webhook.yaml | ./cluster/k8s/extract-ca.sh | kubectl apply -f -
+```
+
+Done!
 
 ### installation on OKD/OCP
 
-Make sure the validating webhooks are enabled. You either need to configure the platform when you install it
+1. Make sure the validating webhooks are enabled. You either need to configure the platform when you install it
 or to use OKD/OCP >= 4.0. See:
 - https://github.com/openshift/origin/issues/20842
 - https://github.com/openshift/openshift-ansible/issues/7983
 
-Then, make sure you have the `template:view` cluster role binding in your cluster. If not, add it:
+2. Then, make sure you have the `template:view` cluster role binding in your cluster. If not, add it:
 ```bash
-$KUBECTL create -f ./cluster/okd/manifests/template-view-role.yaml
+oc create -f ./cluster/okd/manifests/template-view-role.yaml
 ```
 
-### common installation instructions
-
-1. first, create and deploy the certificates in a Kubernetes Secret, to be used in the following steps:
+3. Deploy the service:
 ```bash
-./cluster/$PLATFORM/webhook-create-signed-cert.sh
+kubectl create -f ./cluster/okd/manifests/service.yaml
 ```
+OKD can automatically generate the TLS certificates thanks to the annotation in the provided manifests. So, unlike the steps
+for kubernetes#1, you don't have to do this manually.
 
-2.a. check that the secret exists:
-```bash
-$KUBECTL get secret -n kubevirt virtualmachine-template-validator-certs
-NAME                                      TYPE      DATA      AGE
-virtualmachine-template-validator-certs   Opaque    2         1h
-```
+4. Register the webhook. Like for Kubernetes, we need to set up the CA bundle
 
-3. deploy the service:
-```bash
-$KUBECTL create -f ./cluster/$PLATFORM/manifests/service.yaml
-```
-
-4. In order to set up the webhook, we need a CA bundle. We can reuse the one from the certs we create from the step #1.
-```bash
-cat ./cluster/$PLATFORM/manifests/validating-webhook.yaml | ./cluster/$PLATFORM/extract-ca.sh | $KUBECTL apply -f -
-```
-
-Done!
+TODO
 
 ### Disable the webhook
 

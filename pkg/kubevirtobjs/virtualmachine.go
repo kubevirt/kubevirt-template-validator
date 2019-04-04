@@ -21,6 +21,7 @@ package kubevirtobjs
 import (
 	"fmt"
 
+	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 
 	k6tv1 "kubevirt.io/kubevirt/pkg/api/v1"
@@ -34,9 +35,9 @@ const (
 )
 
 var (
-	ErrTooManyDisks         error = fmt.Errorf("Too many disks requested, max = %u", MaxDisks)
-	ErrTooManyIfaces        error = fmt.Errorf("Too many network interface requested, max = %u", MaxIfaces)
-	ErrTooManyPortsPerIface error = fmt.Errorf("Too many ports per network interface requested, max = %u", MaxPortsPerIface)
+	ErrTooManyDisks         error = fmt.Errorf("Too many disks requested, max = %d", MaxDisks)
+	ErrTooManyIfaces        error = fmt.Errorf("Too many network interface requested, max = %d", MaxIfaces)
+	ErrTooManyPortsPerIface error = fmt.Errorf("Too many ports per network interface requested, max = %d", MaxPortsPerIface)
 )
 
 func newDisks(num uint) ([]k6tv1.Disk, error) {
@@ -87,6 +88,32 @@ func newInterfaces(num, ports uint) ([]k6tv1.Interface, error) {
 	return ifaces, nil
 }
 
+func NewFeatureHyperv() *k6tv1.FeatureHyperv {
+	enabled := false
+	featState := k6tv1.FeatureState{
+		Enabled: &enabled,
+	}
+	featSpinLocks := k6tv1.FeatureSpinlocks{
+		Enabled: &enabled,
+		Retries: new(uint32),
+	}
+	featVendorID := k6tv1.FeatureVendorID{
+		Enabled: &enabled,
+	}
+
+	return &k6tv1.FeatureHyperv{
+		Relaxed:    &featState,
+		VAPIC:      &featState,
+		Spinlocks:  &featSpinLocks,
+		VPIndex:    &featState,
+		Runtime:    &featState,
+		SyNIC:      &featState,
+		SyNICTimer: &featState,
+		Reset:      &featState,
+		VendorID:   &featVendorID,
+	}
+}
+
 // NewDomainSpec returns a fully zero-value DomainSpec with all optional fields, or error if requested parameters exceeds limits
 // TODO: build using instrospection (aka the reflect package)
 func NewDomainSpec(numDisks, numIfaces, numPortsPerIface uint) (*k6tv1.DomainSpec, error) {
@@ -101,8 +128,13 @@ func NewDomainSpec(numDisks, numIfaces, numPortsPerIface uint) (*k6tv1.DomainSpe
 		return nil, err
 	}
 
+	enabled := false
+
 	dom := k6tv1.DomainSpec{
-		// TODO: resources
+		Resources: k6tv1.ResourceRequirements{
+			Requests: make(v1.ResourceList),
+			Limits:   make(v1.ResourceList),
+		},
 		CPU: &k6tv1.CPU{},
 		Memory: &k6tv1.Memory{
 			Hugepages: &k6tv1.Hugepages{},
@@ -111,17 +143,17 @@ func NewDomainSpec(numDisks, numIfaces, numPortsPerIface uint) (*k6tv1.DomainSpe
 		Firmware: &k6tv1.Firmware{},
 		Clock: &k6tv1.Clock{
 			Timer: &k6tv1.Timer{
-				HPET:   &k6tv1.HPETTimer{Enabled: new(bool)},
-				KVM:    &k6tv1.KVMTimer{Enabled: new(bool)},
-				PIT:    &k6tv1.PITTimer{Enabled: new(bool)},
-				RTC:    &k6tv1.RTCTimer{Enabled: new(bool)},
-				Hyperv: &k6tv1.HypervTimer{Enabled: new(bool)},
+				HPET:   &k6tv1.HPETTimer{Enabled: &enabled},
+				KVM:    &k6tv1.KVMTimer{Enabled: &enabled},
+				PIT:    &k6tv1.PITTimer{Enabled: &enabled},
+				RTC:    &k6tv1.RTCTimer{Enabled: &enabled},
+				Hyperv: &k6tv1.HypervTimer{Enabled: &enabled},
 			},
 		},
 		Features: &k6tv1.Features{
-			ACPI:   k6tv1.FeatureState{Enabled: new(bool)},
-			APIC:   &k6tv1.FeatureAPIC{Enabled: new(bool)},
-			Hyperv: &k6tv1.FeatureHyperv{}, // TODO
+			ACPI:   k6tv1.FeatureState{Enabled: &enabled},
+			APIC:   &k6tv1.FeatureAPIC{Enabled: &enabled},
+			Hyperv: NewFeatureHyperv(),
 		},
 		Devices: k6tv1.Devices{
 			Disks: disks,
@@ -131,11 +163,11 @@ func NewDomainSpec(numDisks, numIfaces, numPortsPerIface uint) (*k6tv1.DomainSpe
 				},
 			},
 			Interfaces:                 ifaces,
-			AutoattachPodInterface:     new(bool),
-			AutoattachGraphicsDevice:   new(bool),
+			AutoattachPodInterface:     &enabled,
+			AutoattachGraphicsDevice:   &enabled,
 			Rng:                        &k6tv1.Rng{},
-			BlockMultiQueue:            new(bool),
-			NetworkInterfaceMultiQueue: new(bool),
+			BlockMultiQueue:            &enabled,
+			NetworkInterfaceMultiQueue: &enabled,
 		},
 		IOThreadsPolicy: new(k6tv1.IOThreadsPolicy),
 	}

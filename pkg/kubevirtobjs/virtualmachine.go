@@ -20,6 +20,8 @@ package kubevirtobjs
 
 import (
 	"fmt"
+	"reflect"
+	"unicode"
 
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -32,6 +34,7 @@ const (
 	MaxIfaces        uint = 64
 	MaxPortsPerIface uint = 16
 	MaxNTPServers    uint = 8
+	MaxItems         int  = 64
 )
 
 var (
@@ -181,7 +184,7 @@ func NewVirtualMachine(numDisks, numIfaces, numPortsPerIface uint) (*k6tv1.Virtu
 	tmpl := k6tv1.VirtualMachineInstanceTemplateSpec{}
 	tmpl.Spec.Domain = *dom
 
-	var vm k6tv1.VirtualMachine
+	vm := k6tv1.VirtualMachine{}
 	vm.Spec.Template = &tmpl
 	k6tv1.SetObjectDefaults_VirtualMachine(&vm)
 	return &vm, err
@@ -191,4 +194,54 @@ func NewVirtualMachine(numDisks, numIfaces, numPortsPerIface uint) (*k6tv1.Virtu
 func NewDefaultVirtualMachine() *k6tv1.VirtualMachine {
 	vm, _ := NewVirtualMachine(MaxDisks, MaxIfaces, MaxPortsPerIface)
 	return vm
+}
+func needsInit(k reflect.Kind) bool {
+	return k == reflect.Struct
+}
+
+func initializeStruct(t reflect.Type, v reflect.Value, numItems int) {
+	for i := 0; i < v.NumField(); i++ {
+		ft := t.Field(i)
+		if unicode.IsLower(rune(ft.Name[0])) {
+			continue
+		}
+		f := v.Field(i)
+		switch ft.Type.Kind() {
+		case reflect.Map:
+			f.Set(reflect.MakeMap(ft.Type))
+		case reflect.Slice:
+			f.Set(reflect.MakeSlice(ft.Type, numItems, numItems))
+			if needsInit(ft.Type.Kind()) {
+				for i := 0; i < numItems; i++ {
+					initializeStruct(ft.Type, f.Index(i), numItems)
+				}
+			}
+		case reflect.Chan:
+			f.Set(reflect.MakeChan(ft.Type, 0))
+		case reflect.Struct:
+			initializeStruct(ft.Type, f, numItems)
+		case reflect.Ptr:
+			fv := reflect.New(ft.Type.Elem())
+			if needsInit(fv.Elem().Type().Kind()) {
+				initializeStruct(ft.Type.Elem(), fv.Elem(), numItems)
+			}
+			f.Set(fv)
+		default:
+		}
+	}
+}
+
+func NewDefaultVirtualMachine2() *k6tv1.VirtualMachine {
+	domSpec := k6tv1.DomainSpec{}
+	// this is important. The reflect.Value must be addressable. You may want
+	// to read carefully https://blog.golang.org/laws-of-reflection
+	initializeStruct(reflect.TypeOf(domSpec), reflect.ValueOf(&domSpec).Elem(), MaxItems)
+
+	tmpl := k6tv1.VirtualMachineInstanceTemplateSpec{}
+	tmpl.Spec.Domain = domSpec
+
+	vm := k6tv1.VirtualMachine{}
+	vm.Spec.Template = &tmpl
+	k6tv1.SetObjectDefaults_VirtualMachine(&vm)
+	return &vm
 }

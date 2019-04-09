@@ -20,6 +20,8 @@ package kubevirtobjs
 
 import (
 	"fmt"
+	"reflect"
+	"unicode"
 
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -32,6 +34,7 @@ const (
 	MaxIfaces        uint = 64
 	MaxPortsPerIface uint = 16
 	MaxNTPServers    uint = 8
+	MaxItems         int  = 64
 )
 
 var (
@@ -142,6 +145,12 @@ func NewDomainSpec(numDisks, numIfaces, numPortsPerIface uint) (*k6tv1.DomainSpe
 		},
 		Firmware: &k6tv1.Firmware{},
 		Clock: &k6tv1.Clock{
+			ClockOffset: k6tv1.ClockOffset{
+				UTC: &k6tv1.ClockOffsetUTC{
+					OffsetSeconds: new(int),
+				},
+				Timezone: new(k6tv1.ClockOffsetTimezone),
+			},
 			Timer: &k6tv1.Timer{
 				HPET:   &k6tv1.HPETTimer{Enabled: &enabled},
 				KVM:    &k6tv1.KVMTimer{Enabled: &enabled},
@@ -181,7 +190,7 @@ func NewVirtualMachine(numDisks, numIfaces, numPortsPerIface uint) (*k6tv1.Virtu
 	tmpl := k6tv1.VirtualMachineInstanceTemplateSpec{}
 	tmpl.Spec.Domain = *dom
 
-	var vm k6tv1.VirtualMachine
+	vm := k6tv1.VirtualMachine{}
 	vm.Spec.Template = &tmpl
 	k6tv1.SetObjectDefaults_VirtualMachine(&vm)
 	return &vm, err
@@ -191,4 +200,92 @@ func NewVirtualMachine(numDisks, numIfaces, numPortsPerIface uint) (*k6tv1.Virtu
 func NewDefaultVirtualMachine() *k6tv1.VirtualMachine {
 	vm, _ := NewVirtualMachine(MaxDisks, MaxIfaces, MaxPortsPerIface)
 	return vm
+}
+func needsInit(k reflect.Kind) bool {
+	return k == reflect.Struct
+}
+
+type NumItems map[string]int
+
+func (ni NumItems) ForField(name string) int {
+	num, ok := ni[name]
+	if !ok {
+		return MaxItems
+	}
+	return num
+}
+
+func initializeStruct(t reflect.Type, v reflect.Value, numItems NumItems) {
+	for i := 0; i < v.NumField(); i++ {
+		ft := t.Field(i)
+		if unicode.IsLower(rune(ft.Name[0])) {
+			continue
+		}
+		f := v.Field(i)
+		switch ft.Type.Kind() {
+		case reflect.Map:
+			f.Set(reflect.MakeMap(ft.Type))
+		case reflect.Slice:
+			num := numItems.ForField(ft.Name)
+			f.Set(reflect.MakeSlice(ft.Type, num, num))
+			if needsInit(ft.Type.Elem().Kind()) {
+				for i := 0; i < num; i++ {
+					initializeStruct(ft.Type.Elem(), f.Index(i), numItems)
+				}
+			}
+		case reflect.Chan:
+			f.Set(reflect.MakeChan(ft.Type, 0))
+		case reflect.Struct:
+			initializeStruct(ft.Type, f, numItems)
+		case reflect.Ptr:
+			fv := reflect.New(ft.Type.Elem())
+			if needsInit(fv.Elem().Type().Kind()) {
+				initializeStruct(ft.Type.Elem(), fv.Elem(), numItems)
+			}
+			f.Set(fv)
+		default:
+		}
+	}
+}
+
+func NewDefaultVirtualMachine2() *k6tv1.VirtualMachine {
+	domSpec := k6tv1.DomainSpec{}
+	// this is important. The reflect.Value must be addressable. You may want
+	// to read carefully https://blog.golang.org/laws-of-reflection
+	numItems := NumItems(map[string]int{
+		"Disks":      int(MaxDisks),
+		"Interfaces": int(MaxIfaces),
+		"Ports":      int(MaxPortsPerIface),
+		"NTPServers": int(MaxNTPServers),
+	})
+	initializeStruct(reflect.TypeOf(domSpec), reflect.ValueOf(&domSpec).Elem(), numItems)
+
+	tmpl := k6tv1.VirtualMachineInstanceTemplateSpec{}
+	tmpl.Spec.Domain = domSpec
+
+	vm := k6tv1.VirtualMachine{}
+	vm.Spec.Template = &tmpl
+	k6tv1.SetObjectDefaults_VirtualMachine(&vm)
+	// workaround for k6t
+	setObjectDefaults_VirtualMachine(&vm)
+	return &vm
+}
+
+func setObjectDefaults_VirtualMachine(in *k6tv1.VirtualMachine) {
+	if in.Spec.Template != nil {
+		for i := range in.Spec.Template.Spec.Domain.Devices.Disks {
+			a := &in.Spec.Template.Spec.Domain.Devices.Disks[i]
+			if a.DiskDevice.CDRom != nil {
+				setDefaults_CDRomTarget(a.DiskDevice.CDRom)
+			}
+		}
+	}
+}
+
+func setDefaults_CDRomTarget(obj *k6tv1.CDRomTarget) {
+	_true := true
+	obj.ReadOnly = &_true
+	if obj.Tray == "" {
+		obj.Tray = k6tv1.TrayStateClosed
+	}
 }

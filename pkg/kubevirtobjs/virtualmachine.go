@@ -145,6 +145,12 @@ func NewDomainSpec(numDisks, numIfaces, numPortsPerIface uint) (*k6tv1.DomainSpe
 		},
 		Firmware: &k6tv1.Firmware{},
 		Clock: &k6tv1.Clock{
+			ClockOffset: k6tv1.ClockOffset{
+				UTC: &k6tv1.ClockOffsetUTC{
+					OffsetSeconds: new(int),
+				},
+				Timezone: new(k6tv1.ClockOffsetTimezone),
+			},
 			Timer: &k6tv1.Timer{
 				HPET:   &k6tv1.HPETTimer{Enabled: &enabled},
 				KVM:    &k6tv1.KVMTimer{Enabled: &enabled},

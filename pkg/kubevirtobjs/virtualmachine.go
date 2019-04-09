@@ -199,7 +199,17 @@ func needsInit(k reflect.Kind) bool {
 	return k == reflect.Struct
 }
 
-func initializeStruct(t reflect.Type, v reflect.Value, numItems int) {
+type NumItems map[string]int
+
+func (ni NumItems) ForField(name string) int {
+	num, ok := ni[name]
+	if !ok {
+		return MaxItems
+	}
+	return num
+}
+
+func initializeStruct(t reflect.Type, v reflect.Value, numItems NumItems) {
 	for i := 0; i < v.NumField(); i++ {
 		ft := t.Field(i)
 		if unicode.IsLower(rune(ft.Name[0])) {
@@ -210,10 +220,11 @@ func initializeStruct(t reflect.Type, v reflect.Value, numItems int) {
 		case reflect.Map:
 			f.Set(reflect.MakeMap(ft.Type))
 		case reflect.Slice:
-			f.Set(reflect.MakeSlice(ft.Type, numItems, numItems))
-			if needsInit(ft.Type.Kind()) {
-				for i := 0; i < numItems; i++ {
-					initializeStruct(ft.Type, f.Index(i), numItems)
+			num := numItems.ForField(ft.Name)
+			f.Set(reflect.MakeSlice(ft.Type, num, num))
+			if needsInit(ft.Type.Elem().Kind()) {
+				for i := 0; i < num; i++ {
+					initializeStruct(ft.Type.Elem(), f.Index(i), numItems)
 				}
 			}
 		case reflect.Chan:
@@ -235,7 +246,13 @@ func NewDefaultVirtualMachine2() *k6tv1.VirtualMachine {
 	domSpec := k6tv1.DomainSpec{}
 	// this is important. The reflect.Value must be addressable. You may want
 	// to read carefully https://blog.golang.org/laws-of-reflection
-	initializeStruct(reflect.TypeOf(domSpec), reflect.ValueOf(&domSpec).Elem(), MaxItems)
+	numItems := NumItems(map[string]int{
+		"Disks":      int(MaxDisks),
+		"Interfaces": int(MaxIfaces),
+		"Ports":      int(MaxPortsPerIface),
+		"NTPServers": int(MaxNTPServers),
+	})
+	initializeStruct(reflect.TypeOf(domSpec), reflect.ValueOf(&domSpec).Elem(), numItems)
 
 	tmpl := k6tv1.VirtualMachineInstanceTemplateSpec{}
 	tmpl.Spec.Domain = domSpec

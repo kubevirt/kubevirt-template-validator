@@ -21,7 +21,6 @@ package kubevirtobjs
 import (
 	"fmt"
 	"reflect"
-	"unicode"
 
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -201,52 +200,6 @@ func NewDefaultVirtualMachine() *k6tv1.VirtualMachine {
 	vm, _ := NewVirtualMachine(MaxDisks, MaxIfaces, MaxPortsPerIface)
 	return vm
 }
-func needsInit(k reflect.Kind) bool {
-	return k == reflect.Struct
-}
-
-type NumItems map[string]int
-
-func (ni NumItems) ForField(name string) int {
-	num, ok := ni[name]
-	if !ok {
-		return MaxItems
-	}
-	return num
-}
-
-func initializeStruct(t reflect.Type, v reflect.Value, numItems NumItems) {
-	for i := 0; i < v.NumField(); i++ {
-		ft := t.Field(i)
-		if unicode.IsLower(rune(ft.Name[0])) {
-			continue
-		}
-		f := v.Field(i)
-		switch ft.Type.Kind() {
-		case reflect.Map:
-			f.Set(reflect.MakeMap(ft.Type))
-		case reflect.Slice:
-			num := numItems.ForField(ft.Name)
-			f.Set(reflect.MakeSlice(ft.Type, num, num))
-			if needsInit(ft.Type.Elem().Kind()) {
-				for i := 0; i < num; i++ {
-					initializeStruct(ft.Type.Elem(), f.Index(i), numItems)
-				}
-			}
-		case reflect.Chan:
-			f.Set(reflect.MakeChan(ft.Type, 0))
-		case reflect.Struct:
-			initializeStruct(ft.Type, f, numItems)
-		case reflect.Ptr:
-			fv := reflect.New(ft.Type.Elem())
-			if needsInit(fv.Elem().Type().Kind()) {
-				initializeStruct(ft.Type.Elem(), fv.Elem(), numItems)
-			}
-			f.Set(fv)
-		default:
-		}
-	}
-}
 
 func NewDefaultVirtualMachine2() *k6tv1.VirtualMachine {
 	domSpec := k6tv1.DomainSpec{}
@@ -258,7 +211,7 @@ func NewDefaultVirtualMachine2() *k6tv1.VirtualMachine {
 		"Ports":      int(MaxPortsPerIface),
 		"NTPServers": int(MaxNTPServers),
 	})
-	initializeStruct(reflect.TypeOf(domSpec), reflect.ValueOf(&domSpec).Elem(), numItems)
+	makeStruct(reflect.TypeOf(domSpec), reflect.ValueOf(&domSpec).Elem(), numItems)
 
 	tmpl := k6tv1.VirtualMachineInstanceTemplateSpec{}
 	tmpl.Spec.Domain = domSpec

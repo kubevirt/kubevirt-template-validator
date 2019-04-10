@@ -27,6 +27,10 @@ func isStruct(k reflect.Kind) bool {
 	return k == reflect.Struct
 }
 
+func isUnexported(name string) bool {
+	return unicode.IsLower(rune(name[0]))
+}
+
 type NumItems map[string]int
 
 func (ni NumItems) ForField(name string) int {
@@ -40,9 +44,10 @@ func (ni NumItems) ForField(name string) int {
 func makeStruct(t reflect.Type, v reflect.Value, numItems NumItems) {
 	for i := 0; i < v.NumField(); i++ {
 		ft := t.Field(i)
-		if unicode.IsLower(rune(ft.Name[0])) {
+		if isUnexported(ft.Name) {
 			continue
 		}
+
 		f := v.Field(i)
 		switch ft.Type.Kind() {
 		case reflect.Map:
@@ -50,6 +55,8 @@ func makeStruct(t reflect.Type, v reflect.Value, numItems NumItems) {
 		case reflect.Slice:
 			num := numItems.ForField(ft.Name)
 			f.Set(reflect.MakeSlice(ft.Type, num, num))
+			// caution: check the type of the *items* of the slice,
+			// not the slice itself
 			if isStruct(ft.Type.Elem().Kind()) {
 				for i := 0; i < num; i++ {
 					makeStruct(ft.Type.Elem(), f.Index(i), numItems)
@@ -57,15 +64,17 @@ func makeStruct(t reflect.Type, v reflect.Value, numItems NumItems) {
 			}
 		case reflect.Chan:
 			f.Set(reflect.MakeChan(ft.Type, 0))
-		case reflect.Struct:
-			makeStruct(ft.Type, f, numItems)
 		case reflect.Ptr:
+			// caution: create a pointeD type, not a pointeR type.
 			fv := reflect.New(ft.Type.Elem())
 			if isStruct(fv.Elem().Type().Kind()) {
 				makeStruct(ft.Type.Elem(), fv.Elem(), numItems)
 			}
 			f.Set(fv)
+		case reflect.Struct:
+			makeStruct(ft.Type, f, numItems)
 		default:
+			// nothing to do here
 		}
 	}
 }

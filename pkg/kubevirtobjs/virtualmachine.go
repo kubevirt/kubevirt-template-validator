@@ -203,14 +203,14 @@ func NewDefaultVirtualMachine() *k6tv1.VirtualMachine {
 
 func NewDefaultVirtualMachine2() *k6tv1.VirtualMachine {
 	domSpec := k6tv1.DomainSpec{}
-	// this is important. The reflect.Value must be addressable. You may want
-	// to read carefully https://blog.golang.org/laws-of-reflection
 	numItems := NumItems(map[string]int{
 		"Disks":      int(MaxDisks),
 		"Interfaces": int(MaxIfaces),
 		"Ports":      int(MaxPortsPerIface),
 		"NTPServers": int(MaxNTPServers),
 	})
+	// caution: the reflect.Value must be addressable. You may want
+	// to read carefully https://blog.golang.org/laws-of-reflection
 	makeStruct(reflect.TypeOf(domSpec), reflect.ValueOf(&domSpec).Elem(), numItems)
 
 	tmpl := k6tv1.VirtualMachineInstanceTemplateSpec{}
@@ -219,7 +219,7 @@ func NewDefaultVirtualMachine2() *k6tv1.VirtualMachine {
 	vm := k6tv1.VirtualMachine{}
 	vm.Spec.Template = &tmpl
 	k6tv1.SetObjectDefaults_VirtualMachine(&vm)
-	// workaround for k6t
+	// workaround for k6t limitation
 	setObjectDefaults_VirtualMachine(&vm)
 	return &vm
 }

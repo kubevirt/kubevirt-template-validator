@@ -16,7 +16,6 @@ Gopkg.lock
 glide.lock
 
 TODO
-cmd/kubevirt-template-validator/kubevirt-template-validator
 internal/pkg/version/version.go
 
 pkg/kubevirtobjs/*.dump

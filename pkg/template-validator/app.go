@@ -30,6 +30,7 @@ import (
 	"github.com/fromanirh/kubevirt-template-validator/internal/pkg/k8sutils"
 	"github.com/fromanirh/kubevirt-template-validator/internal/pkg/log"
 	"github.com/fromanirh/kubevirt-template-validator/internal/pkg/service"
+	"github.com/fromanirh/kubevirt-template-validator/internal/pkg/version"
 
 	"github.com/fromanirh/kubevirt-template-validator/pkg/virtinformers"
 	"github.com/fromanirh/kubevirt-template-validator/pkg/webhooks/validating"
@@ -42,7 +43,8 @@ const (
 
 type App struct {
 	service.ServiceListen
-	TLSInfo k8sutils.TLSInfo
+	TLSInfo     k8sutils.TLSInfo
+	versionOnly bool
 }
 
 var _ service.Service = &App{}
@@ -57,9 +59,15 @@ func (app *App) AddFlags() {
 
 	flag.StringVarP(&app.TLSInfo.CertFilePath, "cert-file", "c", "", "override path to TLS certificate - you need also the key to enable TLS")
 	flag.StringVarP(&app.TLSInfo.KeyFilePath, "key-file", "k", "", "override path to TLS key - you need also the cert to enable TLS")
+	flag.BoolVarP(&app.versionOnly, "version", "V", false, "show version and exit")
 }
 
 func (app *App) Run() {
+	log.Log.Infof("%s %s starting", version.COMPONENT, version.VERSION)
+	if app.versionOnly {
+		return
+	}
+
 	app.TLSInfo.UpdateFromK8S()
 	defer app.TLSInfo.Clean()
 

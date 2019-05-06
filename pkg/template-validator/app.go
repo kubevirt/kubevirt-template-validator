@@ -63,7 +63,7 @@ func (app *App) AddFlags() {
 }
 
 func (app *App) Run() {
-	log.Log.Infof("%s %s starting", version.COMPONENT, version.VERSION)
+	log.Log.Infof("%s %s (revision: %s) starting", version.COMPONENT, version.VERSION, version.REVISION)
 	if app.versionOnly {
 		return
 	}

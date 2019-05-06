@@ -2,4 +2,5 @@
 
 TAG="${1:-devel}"
 
-docker build -t fromanirh/kubevirt-template-validator:$TAG . && docker push fromanirh/kubevirt-template-validator:$TAG
+docker build -t quay.io/fromani/kubevirt-template-validator:$TAG . && \
+docker push quay.io/fromani/kubevirt-template-validator:$TAG

@@ -21,6 +21,7 @@ mkdir -p _out
 cp cmd/kubevirt-template-validator/kubevirt-template-validator _out/kubevirt-template-validator-${TAG}-linux-amd64
 git add cmd/kubevirt-template-validator/kubevirt-template-validator && git ci -s -m "binary: rebuild for tag ${TAG}"
 git tag -a -m "kubevirt-template-validator ${TAG}" ${TAG}
+git push origin --tags
 if  which github-release 2> /dev/null; then
 	github-release release -t ${TAG}
 	github-release upload -t ${TAG} \

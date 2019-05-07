@@ -14,7 +14,7 @@
 tags
 Gopkg.lock
 glide.lock
-
+cmd/kubevirt-template-validator/kubevirt-template-validator
 _out
 TODO
 internal/pkg/version/version.go

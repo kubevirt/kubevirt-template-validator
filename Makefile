@@ -9,6 +9,7 @@ binary: #vendor
 release: binary
 	mkdir -p _out
 	cp cmd/kubevirt-template-validator/kubevirt-template-validator _out/kubevirt-template-validator-${VERSION}-linux-amd64
+	hack/container/docker-push.sh ${VERSION}
 
 clean:
 	rm -f cmd/kubevirt-template-validator/kubevirt-template-validator

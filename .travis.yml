@@ -10,6 +10,7 @@ jobs:
   include:
   - stage: Build and Deploy
     name: Build and Deploy to GitHub
+    if: tag IS present
     before_script: skip
     script: make release "VERSION=$TRAVIS_TAG"
     deploy:
@@ -21,8 +22,6 @@ jobs:
       file:
       - _out/*
       name: $TRAVIS_TAG
-      branches:
-        only: /v[0-9]+\.[0-9]+\.[0-9]+(\.[0-9]+){0,1}/
       on:
         tags: true
         branch: master

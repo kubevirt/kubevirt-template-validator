@@ -6,9 +6,6 @@ go: "1.11"
 services:
 - docker
 
-before_script:
-- echo "$QUAY_BOT_PASS" | docker login -u="$QUAY_BOT_USER" --password-stdin quay.io
-
 jobs:
   include:
   - stage: Build and Deploy
@@ -18,9 +15,11 @@ jobs:
     deploy:
       provider: releases
       api_key: "$GITHUB_TOKEN"
-      file:
-      - _out/kubevirt-template-validator-$TRAVIS_TAG-linux-amd64
       skip_cleanup: true
+      overwrite: true
+      file_glob: true
+      file:
+      - _out/*
       name: $TRAVIS_TAG
       on:
         tags: true

@@ -15,7 +15,7 @@ tags
 Gopkg.lock
 glide.lock
 
+_out
 TODO
 internal/pkg/version/version.go
-
 pkg/kubevirtobjs/*.dump

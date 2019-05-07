@@ -63,8 +63,9 @@ OKD can automatically generate the TLS certificates thanks to the annotation in 
 for kubernetes#1, you don't have to do this manually.
 
 4. Register the webhook. Like for Kubernetes, we need to set up the CA bundle
-
-TODO
+```bash
+./cluster/okd/extract-ca.sh ./cluster/okd/manifests/validating-webhook.yaml | oc apply -f -
+```
 
 ### Disable the webhook
 

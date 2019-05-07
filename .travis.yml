@@ -1,0 +1,25 @@
+sudo: required
+dist: xenial
+language: go
+go: "1.11"
+
+services:
+- docker
+
+jobs:
+  include:
+  - stage: Build and Deploy
+    name: Build and Deploy to GitHub
+    before_script: skip
+    script: make release "VERSION=$TRAVIS_TAG"
+    deploy:
+      provider: releases
+      api_key: "$GITHUB_TOKEN"
+      file:
+      - _out/kubevirt-template-validator-$TRAVIS_TAG-linux-amd64
+      skip_cleanup: true
+      name: $TRAVIS_TAG
+      on:
+        tags: true
+        branch: master
+        repo: fromanirh/kubevirt-template-validator

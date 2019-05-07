@@ -2,6 +2,8 @@
 
 set -e
 
+PROJECT=kubevirt-template-validator
+
 if [ -z "$1" ]; then
 	echo "usage: $0 <tag>"
 	exit 1
@@ -12,19 +14,20 @@ if [ -z "${GITHUB_TOKEN}" ] || [ -z "${GITHUB_USER}" ]; then
 fi
 
 TAG="$1"  #TODO: validate tag is vX.Y.Z
+BRANCH=$(git rev-parse --abbrev-ref HEAD)
 
 ./hack/build/build.sh ${TAG}
 if [ -d _out ]; then
 	rm -rf _out;
 fi
 mkdir -p _out
-cp cmd/kubevirt-template-validator/kubevirt-template-validator _out/kubevirt-template-validator-${TAG}-linux-amd64
-git add cmd/kubevirt-template-validator/kubevirt-template-validator && git ci -s -m "binary: rebuild for tag ${TAG}"
-git tag -a -m "kubevirt-template-validator ${TAG}" ${TAG}
-git push origin --tags
+cp cmd/${PROJECT}/${PROJECT} _out/${PROJECT}-${TAG}-linux-amd64
+git add cmd/${PROJECT}/${PROJECT} && git ci -s -m "binaries: rebuild for tag ${TAG}"
+git tag -a -m "${PROJECT} ${TAG}" ${TAG}
+git push origin --tags ${BRANCH}
 if  which github-release 2> /dev/null; then
-	github-release release -t ${TAG} -r kubevirt-template-validator
-	github-release upload -t ${TAG} -r kubevirt-template-validator \
-		-n kubevirt-template-validator-${TAG}-linux-amd64 \
-		-f _out/kubevirt-template-validator-${TAG}-linux-amd64
+	github-release release -t ${TAG} -r ${PROJECT}
+	github-release upload -t ${TAG} -r ${PROJECT} \
+		-n ${PROJECT}-${TAG}-linux-amd64 \
+		-f _out/${PROJECT}-${TAG}-linux-amd64
 fi

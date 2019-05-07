@@ -6,7 +6,7 @@ go: "1.11"
 services:
 - docker
 
-before_script
+before_script:
 - echo "$QUAY_BOT_PASS" | docker login -u="$QUAY_BOT_USER" --password-stdin quay.io
 
 jobs:

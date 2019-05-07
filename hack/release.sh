@@ -23,8 +23,8 @@ git add cmd/kubevirt-template-validator/kubevirt-template-validator && git ci -s
 git tag -a -m "kubevirt-template-validator ${TAG}" ${TAG}
 git push origin --tags
 if  which github-release 2> /dev/null; then
-	github-release release -t ${TAG}
-	github-release upload -t ${TAG} \
+	github-release release -t ${TAG} -r kubevirt-template-validator
+	github-release upload -t ${TAG} -r kubevirt-template-validator \
 		-n kubevirt-template-validator-${TAG}-linux-amd64 \
 		-f _out/kubevirt-template-validator-${TAG}-linux-amd64
 fi

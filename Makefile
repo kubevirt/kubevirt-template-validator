@@ -15,5 +15,14 @@ clean:
 	rm -f cmd/kubevirt-template-validator/kubevirt-template-validator
 	rm -rf _out
 
-.PHONY: all vendor binary release clean
+unittests:
+	go test -v ./...
+
+functests:
+	cd functests && ./test-runner.sh
+
+tests: unittests functests
+
+
+.PHONY: all vendor binary release clean unittests functests tests
 

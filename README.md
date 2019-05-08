@@ -13,6 +13,28 @@ Apache v2
 
 * [kubernetes APIs](https://github.com/kubernetes/kubernetes)
 
+## Building
+
+```bash
+VERSION=devel make binary
+```
+
+## tests
+
+### unit tests
+
+```bash
+make unittests
+```
+
+### functional tests
+Requirements:
+
+* OKD/OCP cluster >= 3.11
+* jq
+* oc (origin client tools)
+
+CONTENT PENDING
 
 ## Installation - K8S
 

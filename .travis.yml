@@ -6,6 +6,9 @@ go: "1.11"
 services:
 - docker
 
+script:
+- '[ "${TRAVIS_PULL_REQUEST}" != "false" ] && make unittests'
+
 jobs:
   include:
   - stage: Build and Deploy

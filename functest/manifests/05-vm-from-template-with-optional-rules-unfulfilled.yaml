@@ -6,7 +6,7 @@ metadata:
     kubevirt.io/vm: vm-test-05
   name: vm-test-05
   annotations:
-    vm.kubevirt.io/template: fedora-generic-small-with-rules-optional
+    vm.kubevirt.io/template: fedora-desktop-small-with-rules-optional
     vm.kubevirt.io/template-namespace: default
 spec:
   running: false

@@ -1,7 +1,7 @@
 apiVersion: v1
 kind: Template
 metadata:
-  name: fedora-generic-small-with-rules
+  name: fedora-desktop-small-with-rules
   annotations:
     openshift.io/display-name: "Fedora 23+ VM"
     description: >-
@@ -74,7 +74,7 @@ objects:
   metadata:
     name: ${NAME}
     labels:
-      vm.kubevirt.io/template: fedora-generic-small
+      vm.kubevirt.io/template: fedora-desktop-small
       app: ${NAME}
   spec:
     running: false

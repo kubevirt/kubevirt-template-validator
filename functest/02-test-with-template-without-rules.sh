@@ -7,4 +7,4 @@ if $KUBECTL get vm vm-test-02; then
 	$KUBECTL delete vm vm-test-02
 fi
 exit $RET
-} &> /dev/null
+}

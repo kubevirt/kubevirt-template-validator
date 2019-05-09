@@ -13,7 +13,7 @@ CSR="virtualmachine-template-validator.kubevirt"
 export CA_BUNDLE=$( $KUBECTL get csr $CSR -o json | jq -r '.status.certificate' )
 
 if command -v envsubst >/dev/null 2>&1; then
-    envsubst
+    envsubst < $1
 else
-    sed -e "s|\${CA_BUNDLE}|${CA_BUNDLE}|g"
+    sed -e "s|\${CA_BUNDLE}|${CA_BUNDLE}|g" < $1
 fi

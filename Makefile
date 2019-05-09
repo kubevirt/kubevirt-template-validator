@@ -19,7 +19,7 @@ unittests:
 	go test -v ./...
 
 functests:
-	cd functests && ./test-runner.sh
+	cd functest && ./test-runner.sh
 
 tests: unittests functests
 

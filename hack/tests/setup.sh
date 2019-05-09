@@ -6,8 +6,10 @@ BASEPATH=$( dirname $SELF )
 ENVPATH="${BASEPATH}/../env"
 
 ${ENVPATH}/minishift/setup.sh
-sleep 30s # to cool down
+sleep 40s
+
 ${ENVPATH}/try-login.sh
+sleep 10s
 
 ${ENVPATH}/install-cluster.sh
 

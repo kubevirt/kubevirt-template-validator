@@ -2,15 +2,20 @@ sudo: required
 dist: xenial
 language: go
 go: "1.11"
+branches:
+  only:
+  - master
+  - /^v[0-9]/
 
 services:
 - docker
 
-script:
-- 'if [ "$TRAVIS_PULL_REQUEST" != "false" ]; then make unittests; fi'
-
 jobs:
   include:
+  - stage: Tests
+    name: Perform unit tests
+    script: make unittests
+
   - stage: Build and Deploy
     name: Build and Deploy to GitHub
     if: tag IS present

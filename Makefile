@@ -15,7 +15,7 @@ clean:
 	rm -f cmd/kubevirt-template-validator/kubevirt-template-validator
 	rm -rf _out
 
-unittests:
+unittests: binary
 	go test -v ./...
 
 functests:

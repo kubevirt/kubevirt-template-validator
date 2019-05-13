@@ -14,7 +14,7 @@ jobs:
   include:
   - stage: Tests
     name: Perform unit tests
-    script: make unittests
+    script: make unittests "VERSION=$TRAVIS_TAG"
 
   - stage: Build and Deploy
     name: Build and Deploy to GitHub

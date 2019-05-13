@@ -7,7 +7,7 @@ services:
 - docker
 
 script:
-- '[ "${TRAVIS_PULL_REQUEST}" != "false" ] && make unittests'
+- 'if [ "$TRAVIS_PULL_REQUEST" != "false" ]; then make unittests; fi'
 
 jobs:
   include:

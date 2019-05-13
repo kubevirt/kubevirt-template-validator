@@ -34,11 +34,23 @@ Requirements:
 * jq
 * oc (origin client tools)
 
-CONTENT PENDING
+You also need access to a running OCP/OKD >= 3.11 cluster. Example scripts are provided to set up
+a `minishift` cluster from scratch.
+Make sure you have the `minishift` binary on the testing system, then run
+
+```
+./hack/tests/setup.sh
+```
+
+Once the environment is up and running, you can run the tests themselves with
+
+```
+make functests
+```
 
 ## Installation - K8S
 
-**PLEASE NOTE**: vanilla kubernetes **does not support openshift template (obviously)** so the webhook
+**PLEASE NOTE**: vanilla kubernetes **does not support openshift templates** so the webhook
 cannot function properly. Anyway, if you want to install it in your kubernetes cluster anyway, follow these steps:
 
 1. Create and deploy the certificates in a Kubernetes Secret, to be used in the following steps:
@@ -98,4 +110,4 @@ $KUBECTL delete -f ./cluster/$PLATFORM/manifests/validating-webhook.yaml
 
 ## Caveats & Gotchas
 
-content pending
+There is no automation to tear down the `minishift` cluster for functests. You need to do it manually.

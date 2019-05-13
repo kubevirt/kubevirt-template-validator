@@ -1,11 +1,7 @@
-FROM centos:7
+FROM registry.access.redhat.com/ubi8/ubi-minimal
 
 MAINTAINER "Francesco Romani" <fromani@redhat.com>
 ENV container docker
-
-RUN yum -y update
-RUN yum install -y net-tools
-RUN yum clean all
 
 RUN mkdir -p /etc/webhook/certs
 COPY cmd/kubevirt-template-validator/kubevirt-template-validator /usr/sbin/kubevirt-template-validator

@@ -3,6 +3,26 @@ if [ -z "${V}" ]; then
 	V=0
 fi
 
+# checking prereqs
+if [ -z "${OC}" ]; then
+	echo "please define the environment variable 'OC'"
+	exit 2
+fi
+if [ -z "${KUBECTL}" ]; then
+	echo "please define the environment variable 'KUBECTL'"
+	exit 2
+fi
+
+MISSING=0
+#for EXE in jq; do
+#	if [ ! which -- ${EXE} &> /dev/null ]; then
+#		echo "missing executable: ${EXE}"
+#		MISSING=1
+#	fi
+#done
+[ "${MISSING}" != "0" ] && exit 4
+
+# we can run the real tests now
 RET=0
 for testscript in $( ls ??-test-*.sh); do
 	testname=$(basename -- "$testscript")

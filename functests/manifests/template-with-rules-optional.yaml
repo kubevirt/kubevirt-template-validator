@@ -90,6 +90,7 @@ objects:
             - disk:
                 bus: virtio
               name: rootdisk
+        evictionStrategy: LiveMigrate
         terminationGracePeriodSeconds: 0
         volumes:
         - name: rootdisk

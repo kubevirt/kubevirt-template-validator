@@ -26,14 +26,9 @@ import (
 
 	"k8s.io/api/admission/v1beta1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/runtime/schema"
 
 	k6tv1 "kubevirt.io/kubevirt/pkg/api/v1"
-	"kubevirt.io/kubevirt/pkg/util/openapi"
-	k6trest "kubevirt.io/kubevirt/pkg/virt-api/rest"
 )
-
-var Validator = openapi.CreateOpenAPIValidator(k6trest.ComposeAPIDefinitions())
 
 // GetAdmissionReview
 func GetAdmissionReview(r *http.Request) (*v1beta1.AdmissionReview, error) {
@@ -103,19 +98,6 @@ func ValidationErrorsToAdmissionResponse(errs []error) *v1beta1.AdmissionRespons
 		)
 	}
 	return ToAdmissionResponse(causes)
-}
-
-func ValidateSchema(gvk schema.GroupVersionKind, data []byte) *v1beta1.AdmissionResponse {
-	in := map[string]interface{}{}
-	err := json.Unmarshal(data, &in)
-	if err != nil {
-		return ToAdmissionResponseError(err)
-	}
-	errs := Validator.Validate(gvk, in)
-	if len(errs) > 0 {
-		return ValidationErrorsToAdmissionResponse(errs)
-	}
-	return nil
 }
 
 func GetAdmissionReviewVM(ar *v1beta1.AdmissionReview) (*k6tv1.VirtualMachine, *k6tv1.VirtualMachine, error) {

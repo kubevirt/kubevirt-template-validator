@@ -25,8 +25,6 @@ import (
 	"k8s.io/api/admission/v1beta1"
 	"k8s.io/apimachinery/pkg/runtime"
 
-	k6tv1 "kubevirt.io/kubevirt/pkg/api/v1"
-
 	"github.com/davecgh/go-spew/spew"
 
 	"github.com/fromanirh/kubevirt-template-validator/pkg/webhooks"
@@ -48,10 +46,6 @@ func admitVMTemplate(ar *v1beta1.AdmissionReview) *v1beta1.AdmissionResponse {
 	newVM, oldVM, err := webhooks.GetAdmissionReviewVM(ar)
 	if err != nil {
 		return webhooks.ToAdmissionResponseError(err)
-	}
-
-	if resp := webhooks.ValidateSchema(k6tv1.VirtualMachineGroupVersionKind, ar.Request.Object.Raw); resp != nil {
-		return resp
 	}
 
 	rules, err := getValidationRulesForVM(newVM)

@@ -31,5 +31,6 @@ spec:
       networks:
       - name: default
         pod: {}
+      evictionStrategy: LiveMigrate
       terminationGracePeriodSeconds: 0
 status: {}

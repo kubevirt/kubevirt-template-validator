@@ -20,6 +20,7 @@
 package virthandler
 
 import (
+	"crypto/tls"
 	"fmt"
 	"io/ioutil"
 	"net"
@@ -39,6 +40,8 @@ import (
 	"k8s.io/client-go/tools/cache"
 	framework "k8s.io/client-go/tools/cache/testing"
 	"k8s.io/client-go/tools/record"
+
+	"kubevirt.io/kubevirt/pkg/certificates"
 
 	v1 "kubevirt.io/kubevirt/pkg/api/v1"
 	"kubevirt.io/kubevirt/pkg/kubecli"
@@ -82,9 +85,23 @@ var _ = Describe("VirtualMachineInstance", func() {
 
 	log.Log.SetIOWriter(GinkgoWriter)
 
+	var certDir string
+
 	BeforeEach(func() {
 		stop = make(chan struct{})
 		shareDir, err = ioutil.TempDir("", "kubevirt-share")
+		Expect(err).ToNot(HaveOccurred())
+		certDir, err = ioutil.TempDir("", "migrationproxytest")
+		Expect(err).ToNot(HaveOccurred())
+
+		store, err := certificates.GenerateSelfSignedCert(certDir, "test", "test")
+
+		tlsConfig := &tls.Config{
+			InsecureSkipVerify: true,
+			GetCertificate: func(info *tls.ClientHelloInfo) (certificate *tls.Certificate, e error) {
+				return store.Current()
+			},
+		}
 		Expect(err).ToNot(HaveOccurred())
 
 		host = "master"
@@ -117,6 +134,8 @@ var _ = Describe("VirtualMachineInstance", func() {
 			gracefulShutdownInformer,
 			1,
 			10,
+			testutils.MakeFakeClusterConfig(nil, stop),
+			tlsConfig,
 		)
 
 		testUUID = uuid.NewUUID()
@@ -141,6 +160,7 @@ var _ = Describe("VirtualMachineInstance", func() {
 		close(stop)
 		ctrl.Finish()
 		os.RemoveAll(shareDir)
+		os.RemoveAll(certDir)
 	})
 
 	initGracePeriodHelper := func(gracePeriod int64, vmi *v1.VirtualMachineInstance, dom *api.Domain) {
@@ -585,25 +605,33 @@ var _ = Describe("VirtualMachineInstance", func() {
 			// something has to be listening to the cmd socket
 			// for the proxy to work.
 			os.MkdirAll(cmdclient.SocketsDirectory(shareDir), os.ModePerm)
-			socketFile := cmdclient.SocketFromUID(shareDir, string(vmi.UID))
-			socket, err := net.Listen("unix", socketFile)
-			Expect(err).NotTo(HaveOccurred())
-			defer socket.Close()
-
+			portsList := []int{0, 49152}
+			for _, port := range portsList {
+				key := string(vmi.UID)
+				if port != 0 {
+					key += fmt.Sprintf("-%d", port)
+				}
+				socketFile := cmdclient.SocketFromUID(shareDir, key)
+				socket, err := net.Listen("unix", socketFile)
+				Expect(err).NotTo(HaveOccurred())
+				defer socket.Close()
+			}
 			// since a random port is generated, we have to create the proxy
 			// here in order to know what port will be in the update.
 			err = controller.handleMigrationProxy(vmi)
 			Expect(err).NotTo(HaveOccurred())
+			err = controller.handlePostSyncMigrationProxy(vmi)
+			Expect(err).NotTo(HaveOccurred())
 
-			curPort := controller.migrationProxy.GetTargetListenerPort(string(vmi.UID))
+			destSrcPorts := controller.migrationProxy.GetTargetListenerPorts(string(vmi.UID))
+			fmt.Println("destSrcPorts: ", destSrcPorts)
 			updatedVmi := vmi.DeepCopy()
-			updatedVmi.Status.MigrationState.TargetNodeAddress = fmt.Sprintf("%s:%d", controller.ipAddress, curPort)
+			updatedVmi.Status.MigrationState.TargetNodeAddress = controller.ipAddress
+			updatedVmi.Status.MigrationState.TargetDirectMigrationNodePorts = destSrcPorts
 
 			client.EXPECT().Ping()
 			client.EXPECT().SyncMigrationTarget(vmi)
-
 			vmiInterface.EXPECT().Update(updatedVmi)
-
 			controller.Execute()
 		}, 3)
 
@@ -616,10 +644,11 @@ var _ = Describe("VirtualMachineInstance", func() {
 			vmi.Status.NodeName = host
 			vmi.Labels[v1.MigrationTargetNodeNameLabel] = "othernode"
 			vmi.Status.MigrationState = &v1.VirtualMachineInstanceMigrationState{
-				TargetNode:        "othernode",
-				TargetNodeAddress: "127.0.0.1:12345",
-				SourceNode:        host,
-				MigrationUID:      "123",
+				TargetNode:                     "othernode",
+				TargetNodeAddress:              "127.0.0.1:12345",
+				SourceNode:                     host,
+				MigrationUID:                   "123",
+				TargetDirectMigrationNodePorts: map[int]int{49152: 12132},
 			}
 			vmi.Status.Conditions = []v1.VirtualMachineInstanceCondition{
 				{
@@ -633,9 +662,52 @@ var _ = Describe("VirtualMachineInstance", func() {
 			domain.Status.Status = api.Running
 			domainFeeder.Add(domain)
 			vmiFeeder.Add(vmi)
+			options := &cmdclient.MigrationOptions{
+				Bandwidth:               resource.MustParse("64Mi"),
+				ProgressTimeout:         150,
+				CompletionTimeoutPerGiB: 800,
+				UnsafeMigration:         false,
+			}
+			client.EXPECT().MigrateVirtualMachine(vmi, options)
+			controller.Execute()
+		}, 3)
 
-			client.EXPECT().MigrateVirtualMachine(vmi)
+		It("should abort vmi migration vmi when migration object indicates deletion", func() {
+			vmi := v1.NewMinimalVMI("testvmi")
+			vmi.UID = testUUID
+			vmi.ObjectMeta.ResourceVersion = "1"
+			vmi.Status.Phase = v1.Running
+			vmi.Labels = make(map[string]string)
+			vmi.Status.NodeName = host
+			vmi.Labels[v1.MigrationTargetNodeNameLabel] = "othernode"
+			vmi.Status.MigrationState = &v1.VirtualMachineInstanceMigrationState{
+				AbortRequested:                 true,
+				TargetNode:                     "othernode",
+				TargetNodeAddress:              "127.0.0.1:12345",
+				SourceNode:                     host,
+				MigrationUID:                   "123",
+				TargetDirectMigrationNodePorts: map[int]int{49152: 12132},
+			}
+			vmi.Status.Conditions = []v1.VirtualMachineInstanceCondition{
+				{
+					Type:   v1.VirtualMachineInstanceIsMigratable,
+					Status: k8sv1.ConditionTrue,
+				},
+			}
 
+			mockWatchdog.CreateFile(vmi)
+			domain := api.NewMinimalDomainWithUUID("testvmi", testUUID)
+			domain.Status.Status = api.Running
+			now := metav1.Time{Time: time.Unix(time.Now().UTC().Unix(), 0)}
+			domain.Spec.Metadata.KubeVirt.Migration = &api.MigrationMetadata{
+				UID:            "123",
+				StartTimestamp: &now,
+			}
+			domainFeeder.Add(domain)
+			vmiFeeder.Add(vmi)
+
+			client.EXPECT().CancelVirtualMachineMigration(vmi)
+			vmiInterface.EXPECT().Update(gomock.Any())
 			controller.Execute()
 		}, 3)
 
@@ -793,7 +865,7 @@ var _ = Describe("VirtualMachineInstance", func() {
 			Expect(blockMigrate).To(BeTrue())
 			Expect(err).To(Equal(fmt.Errorf("cannot migrate VMI with non-shared PVCs")))
 		})
-		It("should not be allowed to migrate a mix of shared and non-shared disks", func() {
+		It("should fail migration for non-shared data volume PVCs", func() {
 
 			vmi := v1.NewMinimalVMI("testvmi")
 			vmi.Spec.Domain.Devices.Disks = []v1.Disk{
@@ -805,41 +877,73 @@ var _ = Describe("VirtualMachineInstance", func() {
 						},
 					},
 				},
-				{
-					Name: "mydisk1",
-					DiskDevice: v1.DiskDevice{
-						Disk: &v1.DiskTarget{
-							Bus: "virtio",
-						},
-					},
-				},
 			}
 			vmi.Spec.Volumes = []v1.Volume{
 				{
 					Name: "myvolume",
 					VolumeSource: v1.VolumeSource{
-						PersistentVolumeClaim: &k8sv1.PersistentVolumeClaimVolumeSource{
-							ClaimName: "testblock",
-						},
-					},
-				},
-				{
-					Name: "myvolume1",
-					VolumeSource: v1.VolumeSource{
-						Ephemeral: &v1.EphemeralVolumeSource{
-							PersistentVolumeClaim: &k8sv1.PersistentVolumeClaimVolumeSource{
-								ClaimName: "testclaim",
-							},
+						DataVolume: &v1.DataVolumeSource{
+							Name: "testblock",
 						},
 					},
 				},
 			}
 
+			testBlockPvc.Spec.AccessModes = []k8sv1.PersistentVolumeAccessMode{k8sv1.ReadWriteOnce}
+
 			virtClient.CoreV1().PersistentVolumeClaims(vmi.Namespace).Create(testBlockPvc)
-			_, err := controller.checkVolumesForMigration(vmi)
-			Expect(err).To(Equal(fmt.Errorf("cannot migrate VMI with mixed shared and non-shared volumes")))
+			blockMigrate, err := controller.checkVolumesForMigration(vmi)
+			Expect(blockMigrate).To(BeTrue())
+			Expect(err).To(Equal(fmt.Errorf("cannot migrate VMI with non-shared PVCs")))
 		})
-		It("should not be allowed to migrate a mix of non-shared and shared disks", func() {
+		It("should be allowed to migrate a mix of shared and non-shared disks", func() {
+
+			vmi := v1.NewMinimalVMI("testvmi")
+			vmi.Spec.Domain.Devices.Disks = []v1.Disk{
+				{
+					Name: "mydisk",
+					DiskDevice: v1.DiskDevice{
+						Disk: &v1.DiskTarget{
+							Bus: "virtio",
+						},
+					},
+				},
+				{
+					Name: "mydisk1",
+					DiskDevice: v1.DiskDevice{
+						Disk: &v1.DiskTarget{
+							Bus: "virtio",
+						},
+					},
+				},
+			}
+			vmi.Spec.Volumes = []v1.Volume{
+				{
+					Name: "myvolume",
+					VolumeSource: v1.VolumeSource{
+						PersistentVolumeClaim: &k8sv1.PersistentVolumeClaimVolumeSource{
+							ClaimName: "testblock",
+						},
+					},
+				},
+				{
+					Name: "myvolume1",
+					VolumeSource: v1.VolumeSource{
+						Ephemeral: &v1.EphemeralVolumeSource{
+							PersistentVolumeClaim: &k8sv1.PersistentVolumeClaimVolumeSource{
+								ClaimName: "testclaim",
+							},
+						},
+					},
+				},
+			}
+
+			virtClient.CoreV1().PersistentVolumeClaims(vmi.Namespace).Create(testBlockPvc)
+			blockMigrate, err := controller.checkVolumesForMigration(vmi)
+			Expect(blockMigrate).To(BeTrue())
+			Expect(err).To(BeNil())
+		})
+		It("should be allowed to migrate a mix of non-shared and shared disks", func() {
 
 			vmi := v1.NewMinimalVMI("testvmi")
 			vmi.Spec.Domain.Devices.Disks = []v1.Disk{
@@ -882,15 +986,16 @@ var _ = Describe("VirtualMachineInstance", func() {
 			}
 
 			virtClient.CoreV1().PersistentVolumeClaims(vmi.Namespace).Create(testBlockPvc)
-			_, err := controller.checkVolumesForMigration(vmi)
-			Expect(err).To(Equal(fmt.Errorf("cannot migrate VMI with mixed shared and non-shared volumes")))
+			blockMigrate, err := controller.checkVolumesForMigration(vmi)
+			Expect(blockMigrate).To(BeTrue())
+			Expect(err).To(BeNil())
 		})
 		It("should be allowed to live-migrate shared HostDisks ", func() {
 			_true := true
 			vmi := v1.NewMinimalVMI("testvmi")
 			vmi.Spec.Domain.Devices.Disks = []v1.Disk{
 				{
-					Name: "mydisk",
+					Name: "myvolume",
 					DiskDevice: v1.DiskDevice{
 						Disk: &v1.DiskTarget{
 							Bus: "virtio",
@@ -1142,7 +1247,7 @@ var _ = Describe("VirtualMachineInstance", func() {
 			vmi.Spec.Networks = []v1.Network{
 				v1.Network{
 					Name:          "other_name",
-					NetworkSource: v1.NetworkSource{Multus: &v1.CniNetwork{}},
+					NetworkSource: v1.NetworkSource{Multus: &v1.MultusNetwork{}},
 				},
 				v1.Network{
 					Name:          interface_name,

@@ -1,4 +1,18 @@
 package: github.com/fromanirh/kubevirt-template-validator
+ignore:
+- github.com/go-kit/kit/examples
+- github.com/golang/glog
+- github.com/go-kit/kit/log/levels
+- github.com/go-kit/kit/metrics/influxdb
+- github.com/go-kit/kit/service
+- code.google.com/p/go-charset
+- k8s.io/client-go/kubernetes/typed/autoscaling/v2alpha1
+- k8s.io/client-go/informers/autoscaling/v2alpha1
+- k8s.io/client-go/listers/autoscaling/v2alpha1
+- k8s.io/api/autoscaling/v2alpha1
+- k8s.io/kube-openapi/pkg/util/proto
+- github.com/gogo/protobuf/test/typedeclimport/subpkg
+- github.com/gogo/protobuf/test/issue312
 import:
 - package: github.com/go-kit/kit
   version: fe6fe28ba0d54b39f27e79cddba4911b7e4fffc7
@@ -9,20 +23,21 @@ import:
   repo: https://github.com/booxter/network-attachment-definition-client.git
   vcs: git
 - package: k8s.io/client-go
-  version: kubernetes-1.11.2
+  version: kubernetes-1.12.4
 - package: k8s.io/apimachinery
-  version: kubernetes-1.11.2
+  version: kubernetes-1.12.4
 - package: k8s.io/api
-  version: kubernetes-1.11.2
+  version: kubernetes-1.12.4
 - package: github.com/openshift/client-go
   version: release-3.11
 - package: github.com/spf13/pflag
   version: 1.0.1
 - package: kubevirt.io/kubevirt
   repo: https://github.com/kubevirt/kubevirt.git
-  version: 0.13.3
+  version: 0.17.0
 - package: kubevirt.io/containerized-data-importer
-  repo: https://github.com/kubevirt/containerized-data-importer.git
+  repo:    https://github.com/kubevirt/containerized-data-importer.git
+  version: 1.8.0
 - package: github.com/gorilla/websocket
   version: 0647012449a1878977514a346b26637dd022446c
 - package: github.com/go-openapi/spec

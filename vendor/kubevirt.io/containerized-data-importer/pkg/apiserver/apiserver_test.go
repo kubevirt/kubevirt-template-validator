@@ -79,7 +79,7 @@ func getAPIServerConfigMap(t *testing.T) *v1.ConfigMap {
 	return &v1.ConfigMap{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "extension-apiserver-authentication",
-			Namespace: "cdi",
+			Namespace: "kube-system",
 		},
 		Data: map[string]string{
 			"client-ca-file":                     "bunchofbytes",
@@ -151,6 +151,16 @@ func tlsSecretGetAction() core.Action {
 	return core.NewGetAction(
 		schema.GroupVersionResource{
 			Resource: "secrets",
+			Version:  "v1",
+		},
+		"cdi",
+		apiCertSecretName)
+}
+
+func cdiConfigMapGetAction() core.Action {
+	return core.NewGetAction(
+		schema.GroupVersionResource{
+			Resource: "configmaps",
 			Version:  "v1",
 		},
 		"cdi",
@@ -415,19 +425,21 @@ func TestShouldGenerateCertsAndKeyFirstRun(t *testing.T) {
 
 	actions := []core.Action{}
 	actions = append(actions, tlsSecretGetAction())
+	actions = append(actions, cdiConfigMapGetAction())
 	actions = append(actions, tlsSecretCreateAction(app.keyBytes, app.certBytes, app.signingCertBytes))
 	actions = append(actions, signingKeySecretGetAction())
+	actions = append(actions, cdiConfigMapGetAction())
 	actions = append(actions, signingKeySecretCreateAction(app.privateSigningKey))
 
 	checkActions(actions, client.Actions(), t)
 }
 
 func TestCreateAPIService(t *testing.T) {
-	kubeobjects := []runtime.Object{}
-
-	aggregatorClient := aggregatorapifake.NewSimpleClientset(kubeobjects...)
+	client := k8sfake.NewSimpleClientset()
+	aggregatorClient := aggregatorapifake.NewSimpleClientset()
 
 	app := &cdiAPIApp{
+		client:           client,
 		aggregatorClient: aggregatorClient,
 		signingCertBytes: []byte("data"),
 	}
@@ -451,9 +463,11 @@ func TestUpdateAPIService(t *testing.T) {
 	kubeobjects := []runtime.Object{}
 	kubeobjects = append(kubeobjects, service)
 
+	client := k8sfake.NewSimpleClientset()
 	aggregatorClient := aggregatorapifake.NewSimpleClientset(kubeobjects...)
 
 	app := &cdiAPIApp{
+		client:           client,
 		aggregatorClient: aggregatorClient,
 		signingCertBytes: certBytes,
 	}
@@ -535,6 +549,15 @@ func TestGetAPIGroupList(t *testing.T) {
 	}
 
 	checkEqual(t, expectedAPIGroupList, apiGroupList)
+}
+
+func TestHealthz(t *testing.T) {
+	rr := doGetRequest(t, "/healthz")
+
+	if status := rr.Code; status != http.StatusOK {
+		t.Errorf("/healthz returned wrong status code: got %v want %v",
+			status, http.StatusOK)
+	}
 }
 
 func TestGetToken(t *testing.T) {

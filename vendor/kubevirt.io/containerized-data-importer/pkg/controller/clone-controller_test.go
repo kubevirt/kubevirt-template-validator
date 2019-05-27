@@ -100,7 +100,7 @@ func TestCreatesClonePods(t *testing.T) {
 // Verifies pods creation is observed and pvc labels are set.
 func TestCloneObservePod(t *testing.T) {
 	f := newCloneFixture(t)
-	pvc := createPvc("trget-pvc", "target-ns", map[string]string{AnnCloneRequest: "source-ns/golden-pvc"}, nil)
+	pvc := createPvc("target-pvc", "target-ns", map[string]string{AnnCloneRequest: "source-ns/golden-pvc"}, nil)
 	id := string(pvc.GetUID())
 
 	sourcePod := createSourcePod(pvc, id)
@@ -234,6 +234,8 @@ func TestCloneFindPodsInCacheUpdating(t *testing.T) {
 	f.kubeobjects = append(f.kubeobjects, tests[0].sourcePod)
 	f.kubeobjects = append(f.kubeobjects, tests[0].targetPod)
 
+	tests[1].pvc.SetUID("pvc-uid-clone1")
+	id = string(tests[1].pvc.GetUID())
 	tests[1].sourcePod = createSourcePod(tests[1].pvc, id)
 	tests[1].sourcePod.Namespace = "source-ns"
 	tests[1].sourcePod.Name = fmt.Sprintf("fakesourcename%d", 2)

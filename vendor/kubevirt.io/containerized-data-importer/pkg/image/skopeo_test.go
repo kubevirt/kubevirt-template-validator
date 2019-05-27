@@ -17,7 +17,6 @@ package image
 
 import (
 	"fmt"
-	"io"
 	"io/ioutil"
 	"os"
 	"path/filepath"
@@ -52,40 +51,41 @@ var _ = Describe("Registry Importer", func() {
 			}
 		})
 	},
-		table.Entry("copy success", mockExecFunction("", ""), "", func() error { return CopyRegistryImage(source, dest, "", "") }),
-		table.Entry("copy failure", mockExecFunction("", "exit status 1"), "exit status 1", func() error { return CopyRegistryImage(source, dest, "", "") }),
+		table.Entry("copy success", mockExecFunction("", "", nil), "", func() error { return CopyRegistryImage(source, dest, "", "", "", "", false) }),
+		table.Entry("copy success with certs", mockExecFunction("", "", nil, "--src-cert-dir=/foo/bar"), "", func() error { return CopyRegistryImage(source, dest, "", "", "", "/foo/bar", false) }),
+		table.Entry("copy success insecure", mockExecFunction("", "", nil, "--src-tls-verify=false"), "", func() error { return CopyRegistryImage(source, dest, "", "", "", "", true) }),
+		table.Entry("copy failure", mockExecFunction("", "Failed to find VM disk image file in the container image", nil), "Failed to find VM disk image file in the container image", func() error { return CopyRegistryImage(source, dest, "", "", "", "", false) }),
 	)
 
 })
 
 var _ = Describe("Extract image layers", func() {
-	var tmpDir string
-	var dataTmpPath string
+	var destTmpDir, dataTmpPath string
 	var err error
 
 	BeforeEach(func() {
-		tmpDir, err = ioutil.TempDir("", "image-layers-test")
+		destTmpDir, err = ioutil.TempDir("", "image-layers-test")
 		Expect(err).NotTo(HaveOccurred())
-		dataTmpPath = filepath.Join(tmpDir, dataTmpDir)
+		dataTmpPath = filepath.Join(destTmpDir, dataTmpDir)
 		err = os.MkdirAll(dataTmpPath, os.ModePerm)
 		Expect(err).NotTo(HaveOccurred())
 	})
 
 	AfterEach(func() {
-		os.RemoveAll(tmpDir)
+		os.RemoveAll(destTmpDir)
 	})
 
 	It("Should not fail on, no layers v2 manifest", func() {
-		err = copyFile(filepath.Join(testImagesDir, "valid_manifest/manifest.json"), filepath.Join(dataTmpPath, "manifest.json"))
+		err = util.CopyFile(filepath.Join(testImagesDir, "valid_manifest/manifest.json"), filepath.Join(dataTmpPath, "manifest.json"))
 		Expect(err).NotTo(HaveOccurred())
-		err := extractImageLayers(tmpDir)
+		err := extractImageLayers(destTmpDir)
 		Expect(err).NotTo(HaveOccurred())
 	})
 
 	It("Should not fail on, layered image", func() {
-		err = util.UnArchiveLocalTar(filepath.Join(testImagesDir, "docker-image.tar"), tmpDir)
+		err = util.UnArchiveLocalTar(filepath.Join(testImagesDir, "docker-image.tar"), destTmpDir)
 		Expect(err).NotTo(HaveOccurred())
-		err := extractImageLayers(filepath.Join(tmpDir, "data"))
+		err := extractImageLayers(filepath.Join(destTmpDir, "data"))
 		Expect(err).NotTo(HaveOccurred())
 	})
 })
@@ -168,26 +168,6 @@ func replaceSkopeoFunctions(mockSkopeoExecFunction execFunctionType, f func()) {
 	f()
 }
 
-func mockExtractImageLayers(dest string) error {
+func mockExtractImageLayers(dest string, arg ...string) error {
 	return nil
-}
-
-func copyFile(src, dst string) error {
-	in, err := os.Open(src)
-	if err != nil {
-		return err
-	}
-	defer in.Close()
-
-	out, err := os.Create(dst)
-	if err != nil {
-		return err
-	}
-	defer out.Close()
-
-	_, err = io.Copy(out, in)
-	if err != nil {
-		return err
-	}
-	return out.Close()
 }

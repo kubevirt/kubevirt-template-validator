@@ -3,12 +3,15 @@ package controller
 import (
 	"fmt"
 	"reflect"
+	"strconv"
 	"testing"
 
 	corev1 "k8s.io/api/core/v1"
 	v1 "k8s.io/api/core/v1"
+	storagev1 "k8s.io/api/storage/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/intstr"
 	kubeinformers "k8s.io/client-go/informers"
 	"k8s.io/client-go/kubernetes"
@@ -18,6 +21,8 @@ import (
 	"k8s.io/client-go/util/workqueue"
 
 	cdiv1 "kubevirt.io/containerized-data-importer/pkg/apis/core/v1alpha1"
+	cdifake "kubevirt.io/containerized-data-importer/pkg/client/clientset/versioned/fake"
+	"kubevirt.io/containerized-data-importer/pkg/common"
 	. "kubevirt.io/containerized-data-importer/pkg/common"
 	"kubevirt.io/containerized-data-importer/pkg/keys"
 )
@@ -25,7 +30,7 @@ import (
 func TestController_pvcFromKey(t *testing.T) {
 	//create staging pvc and pod
 	pvcWithEndPointAnno := createPvc("testPvcWithEndPointAnno", "default", map[string]string{AnnEndpoint: "http://test"}, nil)
-	podWithCdiAnno := createPod(pvcWithEndPointAnno, DataVolName)
+	podWithCdiAnno := createPod(pvcWithEndPointAnno, DataVolName, nil)
 
 	//run the informers
 	c, pvc, pod, err := createImportController(pvcWithEndPointAnno, podWithCdiAnno, "default")
@@ -136,7 +141,7 @@ func TestCloneController_pvcFromKey(t *testing.T) {
 func TestController_objFromKey(t *testing.T) {
 	//create staging pvc and pod
 	pvcWithEndPointAnno := createPvc("testPvcWithEndPointAnno", "default", map[string]string{AnnEndpoint: "http://test"}, nil)
-	podWithCdiAnno := createPod(pvcWithEndPointAnno, DataVolName)
+	podWithCdiAnno := createPod(pvcWithEndPointAnno, DataVolName, nil)
 
 	//run the informers
 	c, pvc, pod, err := createImportController(pvcWithEndPointAnno, podWithCdiAnno, "default")
@@ -400,6 +405,46 @@ func Test_getSource(t *testing.T) {
 			got := getSource(tt.args.pvc)
 			if got != tt.want {
 				t.Errorf("getSource() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func Test_getVolumeMode(t *testing.T) {
+	type args struct {
+		pvc *v1.PersistentVolumeClaim
+	}
+
+	pvcVolumeModeBlock := createBlockPvc("testPVCVolumeModeBlock", "default", map[string]string{AnnSource: SourceHTTP}, nil)
+	pvcVolumeModeFilesystem := createPvc("testPVCVolumeModeFS", "default", map[string]string{AnnSource: SourceHTTP}, nil)
+	pvcVolumeModeFilesystemDefault := createPvc("testPVCVolumeModeFS", "default", map[string]string{AnnSource: SourceHTTP}, nil)
+
+	tests := []struct {
+		name string
+		args args
+		want corev1.PersistentVolumeMode
+	}{
+		{
+			name: "expected volumeMode to be Block",
+			args: args{pvcVolumeModeBlock},
+			want: corev1.PersistentVolumeBlock,
+		},
+		{
+			name: "expected volumeMode to be Filesystem",
+			args: args{pvcVolumeModeFilesystem},
+			want: corev1.PersistentVolumeFilesystem,
+		},
+		{
+			name: "expected volumeMode to be Filesystem",
+			args: args{pvcVolumeModeFilesystemDefault},
+			want: corev1.PersistentVolumeFilesystem,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := getVolumeMode(tt.args.pvc)
+			if got != tt.want {
+				t.Errorf("getVolumeMode() = %v, want %v", got, tt.want)
 			}
 		})
 	}
@@ -756,15 +801,15 @@ func TestCreateImporterPod(t *testing.T) {
 		wantErr bool
 	}{
 		{
-			name:    "expect pod to be created",
-			args:    args{k8sfake.NewSimpleClientset(pvc), "test/image", "-v=5", "Always", &importPodEnvVar{"", "", "", "", "1G"}, pvc},
-			want:    MakeImporterPodSpec("test/image", "-v=5", "Always", &importPodEnvVar{"", "", "", "", "1G"}, pvc),
+			name:    "expect pod to be created for PVC with VolumeMode Filesystem",
+			args:    args{k8sfake.NewSimpleClientset(pvc), "test/image", "-v=5", "Always", &importPodEnvVar{"", "", "", "", "1G", "", false}, pvc},
+			want:    MakeImporterPodSpec("test/image", "-v=5", "Always", &importPodEnvVar{"", "", "", "", "1G", "", false}, pvc, nil),
 			wantErr: false,
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := CreateImporterPod(tt.args.client, tt.args.image, tt.args.verbose, tt.args.pullPolicy, tt.args.podEnvVar, tt.args.pvc)
+			got, err := CreateImporterPod(tt.args.client, tt.args.image, tt.args.verbose, tt.args.pullPolicy, tt.args.podEnvVar, tt.args.pvc, nil)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("CreateImporterPod() error = %v, wantErr %v", err, tt.wantErr)
 				return
@@ -784,10 +829,15 @@ func TestMakeImporterPodSpec(t *testing.T) {
 		podEnvVar  *importPodEnvVar
 		pvc        *v1.PersistentVolumeClaim
 	}
-	// create PVC
+	// create PVC with VolumeMode: Filesystem
 	pvc := createPvc("testPVC2", "default", nil, nil)
 	// create POD
-	pod := createPod(pvc, DataVolName)
+	pod := createPod(pvc, DataVolName, nil)
+
+	// create PVC with VolumeMode: Block
+	pvc1 := createBlockPvc("testPVC2", "default", nil, nil)
+	// create POD
+	pod1 := createPod(pvc1, DataVolName, nil)
 
 	tests := []struct {
 		name    string
@@ -795,14 +845,19 @@ func TestMakeImporterPodSpec(t *testing.T) {
 		wantPod *v1.Pod
 	}{
 		{
-			name:    "expect pod to be created",
-			args:    args{"test/myimage", "5", "Always", &importPodEnvVar{"", "", SourceHTTP, string(cdiv1.DataVolumeKubeVirt), "1G"}, pvc},
+			name:    "expect pod to be created for PVC with VolumeMode: Filesystem",
+			args:    args{"test/myimage", "5", "Always", &importPodEnvVar{"", "", SourceHTTP, string(cdiv1.DataVolumeKubeVirt), "1G", "", false}, pvc},
 			wantPod: pod,
+		},
+		{
+			name:    "expect pod to be created for PVC with VolumeMode: Block",
+			args:    args{"test/myimage", "5", "Always", &importPodEnvVar{"", "", SourceHTTP, string(cdiv1.DataVolumeKubeVirt), "1G", "", false}, pvc1},
+			wantPod: pod1,
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := MakeImporterPodSpec(tt.args.image, tt.args.verbose, tt.args.pullPolicy, tt.args.podEnvVar, tt.args.pvc)
+			got := MakeImporterPodSpec(tt.args.image, tt.args.verbose, tt.args.pullPolicy, tt.args.podEnvVar, tt.args.pvc, nil)
 
 			if !reflect.DeepEqual(got, tt.wantPod) {
 				t.Errorf("MakeImporterPodSpec() =\n%v\n, want\n%v", got, tt.wantPod)
@@ -826,8 +881,8 @@ func Test_makeEnv(t *testing.T) {
 	}{
 		{
 			name: "env should match",
-			args: args{&importPodEnvVar{"myendpoint", "mysecret", SourceHTTP, string(cdiv1.DataVolumeKubeVirt), "1G"}},
-			want: createEnv(&importPodEnvVar{"myendpoint", "mysecret", SourceHTTP, string(cdiv1.DataVolumeKubeVirt), "1G"}, mockUID),
+			args: args{&importPodEnvVar{"myendpoint", "mysecret", SourceHTTP, string(cdiv1.DataVolumeKubeVirt), "1G", "", false}},
+			want: createEnv(&importPodEnvVar{"myendpoint", "mysecret", SourceHTTP, string(cdiv1.DataVolumeKubeVirt), "1G", "", false}, mockUID),
 		},
 	}
 	for _, tt := range tests {
@@ -837,6 +892,35 @@ func Test_makeEnv(t *testing.T) {
 			if got := makeEnv(tt.args.podEnvVar, mockUID); !reflect.DeepEqual(got, tt.want) {
 				t.Errorf("makeEnv() = %v, want %v", got, tt.want)
 			}
+		})
+	}
+}
+
+func TestMakeCDIConfigSpec(t *testing.T) {
+	type args struct {
+		name string
+	}
+	config := createCDIConfigWithStorageClass("testConfig", "")
+
+	tests := []struct {
+		name          string
+		args          args
+		wantCDIConfig *cdiv1.CDIConfig
+	}{
+		{
+			name:          "expect CDIConfig to be created",
+			args:          args{"testConfig"},
+			wantCDIConfig: config,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := MakeEmptyCDIConfigSpec(tt.args.name)
+
+			if !reflect.DeepEqual(got, tt.wantCDIConfig) {
+				t.Errorf("MakeEmptyCDIConfigSpec() =\n%v\n, want\n%v", got, tt.wantCDIConfig)
+			}
+
 		})
 	}
 }
@@ -876,12 +960,206 @@ func Test_addToMap(t *testing.T) {
 	}
 }
 
-func createPod(pvc *v1.PersistentVolumeClaim, dvname string) *v1.Pod {
+func Test_getCertConfigMap(t *testing.T) {
+	namespace := "default"
+	configMapName := "foobar"
+
+	testPVC := &corev1.PersistentVolumeClaim{
+		ObjectMeta: metav1.ObjectMeta{
+			Annotations: map[string]string{
+				"cdi.kubevirt.io/storage.import.certConfigMap": configMapName,
+			},
+		},
+	}
+
+	testConfigMap := &corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      configMapName,
+			Namespace: namespace,
+		},
+	}
+
+	type args struct {
+		pvc    *corev1.PersistentVolumeClaim
+		objs   []runtime.Object
+		result string
+	}
+
+	for _, arg := range []args{
+		{&corev1.PersistentVolumeClaim{}, nil, ""},
+		{testPVC, []runtime.Object{testConfigMap}, configMapName},
+		{testPVC, nil, configMapName},
+	} {
+		client := k8sfake.NewSimpleClientset(arg.objs...)
+
+		result, err := getCertConfigMap(client, arg.pvc)
+
+		if err != nil {
+			t.Errorf("Enexpected error %+v", err)
+		}
+
+		if result != arg.result {
+			t.Errorf("Expected %s got %s", arg.result, result)
+		}
+	}
+}
+
+func Test_getInsecureTLS(t *testing.T) {
+	namespace := "cdi"
+	configMapName := "cdi-insecure-registries"
+	host := "myregistry"
+	endpointNoPort := "docker://" + host
+	hostWithPort := host + ":5000"
+	endpointWithPort := "docker://" + hostWithPort
+
+	type args struct {
+		endpoint       string
+		confiMapExists bool
+		insecureHost   string
+		result         bool
+	}
+
+	for _, arg := range []args{
+		{endpointNoPort, true, host, true},
+		{endpointWithPort, true, hostWithPort, true},
+		{endpointNoPort, true, hostWithPort, false},
+		{endpointWithPort, true, host, false},
+		{endpointNoPort, false, "", false},
+		{"", true, host, false},
+	} {
+		var objs []runtime.Object
+
+		pvc := &corev1.PersistentVolumeClaim{}
+		if arg.endpoint != "" {
+			pvc.Annotations = map[string]string{
+				"cdi.kubevirt.io/storage.import.endpoint": arg.endpoint,
+			}
+		}
+
+		if arg.confiMapExists {
+			cm := &corev1.ConfigMap{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      configMapName,
+					Namespace: namespace,
+				},
+			}
+
+			if arg.insecureHost != "" {
+				cm.Data = map[string]string{
+					arg.insecureHost: "",
+				}
+			}
+
+			objs = append(objs, cm)
+		}
+
+		client := k8sfake.NewSimpleClientset(objs...)
+
+		result, err := isInsecureTLS(client, pvc)
+
+		if err != nil {
+			t.Errorf("Enexpected error %+v", err)
+		}
+
+		if result != arg.result {
+			t.Errorf("Expected %t got %t", arg.result, result)
+		}
+	}
+}
+
+func Test_GetScratchPvcStorageClassDefault(t *testing.T) {
+	var objs []runtime.Object
+	objs = append(objs, createStorageClass("test1", nil))
+	objs = append(objs, createStorageClass("test2", nil))
+	objs = append(objs, createStorageClass("test3", map[string]string{
+		AnnDefaultStorageClass: "true",
+	}))
+	client := k8sfake.NewSimpleClientset(objs...)
+
+	storageClassName := "test3"
+	var cdiObjs []runtime.Object
+	cdiObjs = append(cdiObjs, createCDIConfigWithStorageClass(common.ConfigName, storageClassName))
+	cdiclient := cdifake.NewSimpleClientset(cdiObjs...)
+
+	pvc := createPvc("test", "test", nil, nil)
+	result := GetScratchPvcStorageClass(client, cdiclient, pvc)
+
+	if result != storageClassName {
+		t.Error("Storage class is not test3")
+	}
+}
+
+func Test_GetScratchPvcStorageClassConfig(t *testing.T) {
+	var objs []runtime.Object
+	objs = append(objs, createStorageClass("test1", nil))
+	objs = append(objs, createStorageClass("test2", nil))
+	objs = append(objs, createStorageClass("test3", map[string]string{
+		AnnDefaultStorageClass: "true",
+	}))
+	client := k8sfake.NewSimpleClientset(objs...)
+
+	storageClassName := "test1"
+	var cdiObjs []runtime.Object
+	config := createCDIConfigWithStorageClass(common.ConfigName, storageClassName)
+	config.Spec.ScratchSpaceStorageClass = &storageClassName
+	cdiObjs = append(cdiObjs, config)
+	cdiclient := cdifake.NewSimpleClientset(cdiObjs...)
+
+	pvc := createPvc("test", "test", nil, nil)
+	result := GetScratchPvcStorageClass(client, cdiclient, pvc)
+
+	if result != storageClassName {
+		t.Error("Storage class is not test1")
+	}
+}
+
+func Test_GetScratchPvcStorageClassPvc(t *testing.T) {
+	var objs []runtime.Object
+	client := k8sfake.NewSimpleClientset(objs...)
+
+	storageClass := "storageClass"
+	var cdiObjs []runtime.Object
+	cdiObjs = append(cdiObjs, createCDIConfigWithStorageClass(common.ConfigName, storageClass))
+	cdiclient := cdifake.NewSimpleClientset(cdiObjs...)
+
+	pvc := createPvcInStorageClass("test", "test", &storageClass, nil, nil)
+	result := GetScratchPvcStorageClass(client, cdiclient, pvc)
+
+	if result != storageClass {
+		t.Error("Storage class is not storageClass")
+	}
+}
+
+func createPod(pvc *v1.PersistentVolumeClaim, dvname string, scratchPvc *v1.PersistentVolumeClaim) *v1.Pod {
 	// importer pod name contains the pvc name
 	podName := fmt.Sprintf("%s-%s-", ImporterPodName, pvc.Name)
 
 	blockOwnerDeletion := true
 	isController := true
+
+	volumes := []v1.Volume{
+		{
+			Name: DataVolName,
+			VolumeSource: v1.VolumeSource{
+				PersistentVolumeClaim: &v1.PersistentVolumeClaimVolumeSource{
+					ClaimName: pvc.Name,
+					ReadOnly:  false,
+				},
+			},
+		},
+	}
+
+	if scratchPvc != nil {
+		volumes = append(volumes, v1.Volume{
+			Name: ScratchVolName,
+			VolumeSource: v1.VolumeSource{
+				PersistentVolumeClaim: &v1.PersistentVolumeClaimVolumeSource{
+					ClaimName: scratchPvc.Name,
+					ReadOnly:  false,
+				},
+			},
+		})
+	}
 
 	pod := &v1.Pod{
 		TypeMeta: metav1.TypeMeta{
@@ -916,13 +1194,7 @@ func createPod(pvc *v1.PersistentVolumeClaim, dvname string) *v1.Pod {
 					Name:            ImporterPodName,
 					Image:           "test/myimage",
 					ImagePullPolicy: v1.PullPolicy("Always"),
-					VolumeMounts: []v1.VolumeMount{
-						{
-							Name:      DataVolName,
-							MountPath: ImporterDataDir,
-						},
-					},
-					Args: []string{"-v=5"},
+					Args:            []string{"-v=5"},
 					Ports: []v1.ContainerPort{
 						{
 							Name:          "metrics",
@@ -933,17 +1205,7 @@ func createPod(pvc *v1.PersistentVolumeClaim, dvname string) *v1.Pod {
 				},
 			},
 			RestartPolicy: v1.RestartPolicyOnFailure,
-			Volumes: []v1.Volume{
-				{
-					Name: dvname,
-					VolumeSource: v1.VolumeSource{
-						PersistentVolumeClaim: &v1.PersistentVolumeClaimVolumeSource{
-							ClaimName: pvc.Name,
-							ReadOnly:  false,
-						},
-					},
-				},
-			},
+			Volumes:       volumes,
 		},
 	}
 
@@ -951,6 +1213,7 @@ func createPod(pvc *v1.PersistentVolumeClaim, dvname string) *v1.Pod {
 	source := getSource(pvc)
 	contentType := getContentType(pvc)
 	imageSize, _ := getRequestedImageSize(pvc)
+	volumeMode := getVolumeMode(pvc)
 
 	env := []v1.EnvVar{
 		{
@@ -973,18 +1236,48 @@ func createPod(pvc *v1.PersistentVolumeClaim, dvname string) *v1.Pod {
 			Name:  OwnerUID,
 			Value: string(pvc.UID),
 		},
+		{
+			Name:  InsecureTLSVar,
+			Value: "false",
+		},
 	}
 	pod.Spec.Containers[0].Env = env
+	if volumeMode == v1.PersistentVolumeBlock {
+		pod.Spec.Containers[0].VolumeDevices = addVolumeDevices()
+
+	} else {
+		pod.Spec.Containers[0].VolumeMounts = addVolumeMounts()
+	}
+
+	if scratchPvc != nil {
+		pod.Spec.Containers[0].VolumeMounts = append(pod.Spec.Containers[0].VolumeMounts, v1.VolumeMount{
+			Name:      ScratchVolName,
+			MountPath: common.ScratchDataDir,
+		})
+	}
+
 	return pod
 }
 
+func createBlockPvc(name, ns string, annotations, labels map[string]string) *v1.PersistentVolumeClaim {
+	pvcDef := createPvcInStorageClass(name, ns, nil, annotations, labels)
+	volumeMode := corev1.PersistentVolumeMode(corev1.PersistentVolumeBlock)
+	pvcDef.Spec.VolumeMode = &volumeMode
+	return pvcDef
+}
+
 func createPvc(name, ns string, annotations, labels map[string]string) *v1.PersistentVolumeClaim {
+	return createPvcInStorageClass(name, ns, nil, annotations, labels)
+}
+
+func createPvcInStorageClass(name, ns string, storageClassName *string, annotations, labels map[string]string) *v1.PersistentVolumeClaim {
 	return &v1.PersistentVolumeClaim{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:        name,
 			Namespace:   ns,
 			Annotations: annotations,
 			Labels:      labels,
+			UID:         "pvc-uid",
 		},
 		Spec: v1.PersistentVolumeClaimSpec{
 			AccessModes: []v1.PersistentVolumeAccessMode{v1.ReadOnlyMany, v1.ReadWriteOnce},
@@ -993,6 +1286,36 @@ func createPvc(name, ns string, annotations, labels map[string]string) *v1.Persi
 					v1.ResourceName(v1.ResourceStorage): resource.MustParse("1G"),
 				},
 			},
+			StorageClassName: storageClassName,
+		},
+	}
+}
+
+func createScratchPvc(pvc *v1.PersistentVolumeClaim, pod *v1.Pod, storageClassName string) *v1.PersistentVolumeClaim {
+	labels := map[string]string{
+		"cdi-controller": pod.Name,
+		"app":            "containerized-data-importer",
+		LabelImportPvc:   pvc.Name,
+	}
+
+	return &v1.PersistentVolumeClaim{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      pvc.Name + "-scratch",
+			Namespace: pvc.Namespace,
+			Labels:    labels,
+			OwnerReferences: []metav1.OwnerReference{
+				{
+					APIVersion: "v1",
+					Kind:       "Pod",
+					Name:       pod.Name,
+					UID:        pod.GetUID(),
+				},
+			},
+		},
+		Spec: v1.PersistentVolumeClaimSpec{
+			AccessModes:      []v1.PersistentVolumeAccessMode{"ReadWriteOnce"},
+			Resources:        pvc.Spec.Resources,
+			StorageClassName: &storageClassName,
 		},
 	}
 }
@@ -1066,7 +1389,12 @@ func createEnv(podEnvVar *importPodEnvVar, uid string) []v1.EnvVar {
 			Name:  OwnerUID,
 			Value: string(uid),
 		},
+		{
+			Name:  InsecureTLSVar,
+			Value: strconv.FormatBool(podEnvVar.insecureTLS),
+		},
 	}
+
 	if podEnvVar.secretName != "" {
 		env = append(env, v1.EnvVar{
 			Name: ImporterAccessKeyID,
@@ -1096,6 +1424,7 @@ func createEnv(podEnvVar *importPodEnvVar, uid string) []v1.EnvVar {
 func createImportController(pvcSpec *v1.PersistentVolumeClaim, podSpec *v1.Pod, ns string) (*ImportController, *v1.PersistentVolumeClaim, *v1.Pod, error) {
 	//Set up environment
 	myclient := k8sfake.NewSimpleClientset()
+	cdiclient := cdifake.NewSimpleClientset()
 
 	//create staging pvc and pod
 	pvc, err := myclient.CoreV1().PersistentVolumeClaims(ns).Create(pvcSpec)
@@ -1128,7 +1457,7 @@ func createImportController(pvcSpec *v1.PersistentVolumeClaim, podSpec *v1.Pod, 
 	cache.WaitForCacheSync(stop, pvcInformer.Informer().HasSynced)
 	defer close(stop)
 
-	c := NewImportController(myclient, pvcInformer, podInformer, "test/image", "Always", "-v=5")
+	c := NewImportController(myclient, cdiclient, pvcInformer, podInformer, "test/image", "Always", "-v=5")
 	return c, pvc, pod, nil
 }
 
@@ -1176,7 +1505,7 @@ func createCloneController(pvcSpec *v1.PersistentVolumeClaim, sourcePodSpec *v1.
 	return c, pvc, sourcePod, targetPod, nil
 }
 
-func createSourcePod(pvc *v1.PersistentVolumeClaim, id string) *v1.Pod {
+func createSourcePod(pvc *v1.PersistentVolumeClaim, pvcUID string) *v1.Pod {
 	_, sourcePvcName := ParseSourcePvcAnnotation(pvc.GetAnnotations()[AnnCloneRequest], "/")
 	// source pod name contains the pvc name
 	podName := fmt.Sprintf("%s-", ClonerSourcePodName)
@@ -1196,9 +1525,9 @@ func createSourcePod(pvc *v1.PersistentVolumeClaim, id string) *v1.Pod {
 			Labels: map[string]string{
 				CDILabelKey:       CDILabelValue, //filtered by the podInformer
 				CDIComponentLabel: ClonerSourcePodName,
-				CloningLabelKey:   CloningLabelValue + "-" + id, //used by podAffity
+				CloningLabelKey:   CloningLabelValue + "-" + pvcUID, //used by podAffity
 				// this label is used when searching for a pvc's cloner source pod.
-				CloneUniqueID: pvc.Name + "-source-pod",
+				CloneUniqueID: pvcUID + "-source-pod",
 			},
 			OwnerReferences: []metav1.OwnerReference{
 				{
@@ -1228,10 +1557,10 @@ func createSourcePod(pvc *v1.PersistentVolumeClaim, id string) *v1.Pod {
 						},
 						{
 							Name:      socketPathName,
-							MountPath: ClonerSocketPath + "/" + id,
+							MountPath: ClonerSocketPath + "/" + pvcUID,
 						},
 					},
-					Args: []string{"source", id},
+					Args: []string{"source", pvcUID},
 				},
 			},
 			RestartPolicy: v1.RestartPolicyNever,
@@ -1249,7 +1578,7 @@ func createSourcePod(pvc *v1.PersistentVolumeClaim, id string) *v1.Pod {
 					Name: socketPathName,
 					VolumeSource: v1.VolumeSource{
 						HostPath: &v1.HostPathVolumeSource{
-							Path: ClonerSocketPath + "/" + id,
+							Path: ClonerSocketPath + "/" + pvcUID,
 						},
 					},
 				},
@@ -1259,7 +1588,7 @@ func createSourcePod(pvc *v1.PersistentVolumeClaim, id string) *v1.Pod {
 	return pod
 }
 
-func createTargetPod(pvc *v1.PersistentVolumeClaim, id, podAffinityNamespace string) *v1.Pod {
+func createTargetPod(pvc *v1.PersistentVolumeClaim, pvcUID, podAffinityNamespace string) *v1.Pod {
 	// target pod name contains the pvc name
 	podName := fmt.Sprintf("%s-", ClonerTargetPodName)
 	blockOwnerDeletion := true
@@ -1280,7 +1609,7 @@ func createTargetPod(pvc *v1.PersistentVolumeClaim, id, podAffinityNamespace str
 				CDILabelKey:       CDILabelValue, //filtered by the podInformer
 				CDIComponentLabel: ClonerTargetPodName,
 				// this label is used when searching for a pvc's cloner target pod.
-				CloneUniqueID:   pvc.Name + "-target-pod",
+				CloneUniqueID:   pvcUID + "-target-pod",
 				PrometheusLabel: "",
 			},
 			OwnerReferences: []metav1.OwnerReference{
@@ -1304,7 +1633,7 @@ func createTargetPod(pvc *v1.PersistentVolumeClaim, id, podAffinityNamespace str
 									{
 										Key:      CloningLabelKey,
 										Operator: metav1.LabelSelectorOpIn,
-										Values:   []string{CloningLabelValue + "-" + id},
+										Values:   []string{CloningLabelValue + "-" + pvcUID},
 									},
 								},
 							},
@@ -1330,10 +1659,10 @@ func createTargetPod(pvc *v1.PersistentVolumeClaim, id, podAffinityNamespace str
 						},
 						{
 							Name:      socketPathName,
-							MountPath: ClonerSocketPath + "/" + id,
+							MountPath: ClonerSocketPath + "/" + pvcUID,
 						},
 					},
-					Args: []string{"target", id},
+					Args: []string{"target", pvcUID},
 					Ports: []v1.ContainerPort{
 						{
 							Name:          "metrics",
@@ -1364,7 +1693,7 @@ func createTargetPod(pvc *v1.PersistentVolumeClaim, id, podAffinityNamespace str
 					Name: socketPathName,
 					VolumeSource: v1.VolumeSource{
 						HostPath: &v1.HostPathVolumeSource{
-							Path: ClonerSocketPath + "/" + id,
+							Path: ClonerSocketPath + "/" + pvcUID,
 						},
 					},
 				},
@@ -1386,6 +1715,7 @@ func getPvcKey(pvc *corev1.PersistentVolumeClaim, t *testing.T) string {
 func createUploadPod(pvc *v1.PersistentVolumeClaim) *v1.Pod {
 	name := "cdi-upload-" + pvc.Name
 	secretName := name + "-server-tls"
+	requestImageSize, _ := getRequestedImageSize(pvc)
 
 	pod := &v1.Pod{
 		TypeMeta: metav1.TypeMeta{
@@ -1417,6 +1747,10 @@ func createUploadPod(pvc *v1.PersistentVolumeClaim) *v1.Pod {
 						{
 							Name:      DataVolName,
 							MountPath: "/data",
+						},
+						{
+							Name:      ScratchVolName,
+							MountPath: "/scratch",
 						},
 					},
 					Env: []v1.EnvVar{
@@ -1453,8 +1787,25 @@ func createUploadPod(pvc *v1.PersistentVolumeClaim) *v1.Pod {
 								},
 							},
 						},
+						{
+							Name:  common.UploadImageSize,
+							Value: requestImageSize,
+						},
 					},
 					Args: []string{"-v=" + "5"},
+					ReadinessProbe: &v1.Probe{
+						Handler: v1.Handler{
+							HTTPGet: &v1.HTTPGetAction{
+								Path: "/healthz",
+								Port: intstr.IntOrString{
+									Type:   intstr.Int,
+									IntVal: 8080,
+								},
+							},
+						},
+						InitialDelaySeconds: 2,
+						PeriodSeconds:       5,
+					},
 				},
 			},
 			RestartPolicy: v1.RestartPolicyOnFailure,
@@ -1464,6 +1815,15 @@ func createUploadPod(pvc *v1.PersistentVolumeClaim) *v1.Pod {
 					VolumeSource: v1.VolumeSource{
 						PersistentVolumeClaim: &v1.PersistentVolumeClaimVolumeSource{
 							ClaimName: pvc.Name,
+							ReadOnly:  false,
+						},
+					},
+				},
+				{
+					Name: ScratchVolName,
+					VolumeSource: v1.VolumeSource{
+						PersistentVolumeClaim: &v1.PersistentVolumeClaimVolumeSource{
+							ClaimName: pvc.Name + "-scratch",
 							ReadOnly:  false,
 						},
 					},
@@ -1521,4 +1881,32 @@ func createUploadService(pvc *v1.PersistentVolumeClaim) *v1.Service {
 		},
 	}
 	return service
+}
+
+func createCDIConfig(name string) *cdiv1.CDIConfig {
+	return createCDIConfigWithStorageClass(name, "")
+}
+
+func createCDIConfigWithStorageClass(name string, storageClass string) *cdiv1.CDIConfig {
+	return &cdiv1.CDIConfig{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: name,
+			Labels: map[string]string{
+				common.CDILabelKey:       common.CDILabelValue,
+				common.CDIComponentLabel: "",
+			},
+		},
+		Status: cdiv1.CDIConfigStatus{
+			ScratchSpaceStorageClass: storageClass,
+		},
+	}
+}
+
+func createStorageClass(name string, annotations map[string]string) *storagev1.StorageClass {
+	return &storagev1.StorageClass{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:        name,
+			Annotations: annotations,
+		},
+	}
 }

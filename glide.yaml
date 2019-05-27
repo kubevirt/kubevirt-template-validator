@@ -1,7 +1,6 @@
 package: github.com/fromanirh/kubevirt-template-validator
 ignore:
 - github.com/go-kit/kit/examples
-- github.com/golang/glog
 - github.com/go-kit/kit/log/levels
 - github.com/go-kit/kit/metrics/influxdb
 - github.com/go-kit/kit/service

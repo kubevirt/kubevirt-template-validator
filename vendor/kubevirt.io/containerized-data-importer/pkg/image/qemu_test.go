@@ -18,6 +18,8 @@ package image
 import (
 	"fmt"
 	"net/url"
+	"reflect"
+	"strings"
 
 	"github.com/pkg/errors"
 
@@ -37,6 +39,24 @@ import (
 const goodValidateJSON = `
 {
     "virtual-size": 4294967296,
+    "filename": "myimage.qcow2",
+    "cluster-size": 65536,
+    "format": "qcow2",
+    "actual-size": 262152192,
+    "format-specific": {
+        "type": "qcow2",
+        "data": {
+            "compat": "0.10",
+            "refcount-bits": 16
+        }
+    },
+    "dirty-flag": false
+}
+`
+
+const hugeValidateJSON = `
+{
+    "virtual-size": 52949672960,
     "filename": "myimage.qcow2",
     "cluster-size": 65536,
     "format": "qcow2",
@@ -74,7 +94,7 @@ const badFormatValidateJSON = `
     "virtual-size": 4294967296,
     "filename": "myimage.qcow2",
     "cluster-size": 65536,
-    "format": "raw",
+    "format": "raw2",
     "actual-size": 262152192,
     "dirty-flag": false
 }
@@ -99,45 +119,95 @@ const backingFileValidateJSON = `
 }
 `
 
-type progressFunctionType func(string)
-
 type execFunctionType func(*system.ProcessLimitValues, func(string), string, ...string) ([]byte, error)
 
 func init() {
 	ownerUID = "1111-1111-111"
 }
 
-var _ = Describe("Importer", func() {
-	source := "/upload/myimage.qcow2"
-	dest := "/data/disk.img"
-	sourceStream, _ := url.Parse("http://localhost:8080/myimage.qcow2")
-	destStream := "/tmp/myimage.qcow2"
-	imageName := "myimage.qcow2"
+var expectedLimits = &system.ProcessLimitValues{AddressSpaceLimit: 1 << 30, CPUTimeLimit: 30}
 
-	table.DescribeTable("with import source should", func(execfunc execFunctionType, errString string, errFunc func() error) {
-		replaceExecFunction(execfunc, func() {
-			err := errFunc()
-
-			if errString == "" {
-				Expect(err).NotTo(HaveOccurred())
-			} else {
-				Expect(err).To(HaveOccurred())
-				rootErr := errors.Cause(err)
-				if rootErr.Error() != errString {
-					Fail(fmt.Sprintf("Got wrong failure: %s, expected %s", rootErr, errString))
-				}
-			}
+var _ = Describe("Convert to Raw", func() {
+	It("should return no error if exec function returns no error", func() {
+		replaceExecFunction(mockExecFunction("", "", nil, "convert", "-p", "-O", "raw", "source", "dest"), func() {
+			err := convertToRaw("source", "dest")
+			Expect(err).NotTo(HaveOccurred())
 		})
-	},
-		table.Entry("non-streaming convert success", mockExecFunction("", ""), "", func() error { return ConvertQcow2ToRaw(source, dest) }),
-		table.Entry("non-streaming  convert qemu-img failure", mockExecFunction("", "exit status 1"), "exit status 1", func() error { return ConvertQcow2ToRaw(source, dest) }),
-		table.Entry("streaming convert success", mockExecFunction("", ""), "", func() error { return ConvertQcow2ToRawStream(sourceStream, destStream) }),
-		table.Entry("streaming  convert qemu-img failure", mockExecFunction("", "exit status 1"), "exit status 1", func() error { return ConvertQcow2ToRawStream(sourceStream, destStream) }),
-	)
+	})
 
-	table.DescribeTable("Validate should", func(execfunc execFunctionType, errString string) {
+	It("should return conversion error if exec function returns error", func() {
+		replaceExecFunction(mockExecFunction("", "exit 1", nil, "convert", "-p", "-O", "raw", "source", "dest"), func() {
+			err := convertToRaw("source", "dest")
+			Expect(err).To(HaveOccurred())
+			Expect(strings.Contains(err.Error(), "could not convert image to raw")).To(BeTrue())
+		})
+	})
+
+	It("should stream file to destination", func() {
+		replaceExecFunction(mockExecFunction("", "", nil, "convert", "-p", "-O", "raw", "/somefile/somewhere", "dest"), func() {
+			ep, err := url.Parse("/somefile/somewhere")
+			Expect(err).NotTo(HaveOccurred())
+			err = ConvertToRawStream(ep, "dest")
+			Expect(err).NotTo(HaveOccurred())
+		})
+	})
+
+	It("should stream valid url to destination", func() {
+		ep, err := url.Parse("http://someurl/somewhere")
+		Expect(err).NotTo(HaveOccurred())
+		jsonArg := fmt.Sprintf("json: {\"file.driver\": \"%s\", \"file.url\": \"%s\", \"file.timeout\": %d}", ep.Scheme, ep, networkTimeoutSecs)
+		replaceExecFunction(mockExecFunction("", "", nil, "convert", "-p", "-O", "raw", jsonArg, "dest"), func() {
+			err = ConvertToRawStream(ep, "dest")
+			Expect(err).NotTo(HaveOccurred())
+		})
+	})
+
+	It("should return conversion error if exec function returns error for url", func() {
+		ep, err := url.Parse("http://someurl/somewhere")
+		Expect(err).NotTo(HaveOccurred())
+		jsonArg := fmt.Sprintf("json: {\"file.driver\": \"%s\", \"file.url\": \"%s\", \"file.timeout\": %d}", ep.Scheme, ep, networkTimeoutSecs)
+		replaceExecFunction(mockExecFunction("", "exit 1", nil, "convert", "-p", "-O", "raw", jsonArg, "dest"), func() {
+			err := ConvertToRawStream(ep, "dest")
+			Expect(err).To(HaveOccurred())
+			Expect(strings.Contains(err.Error(), "could not stream/convert image to raw")).To(BeTrue())
+		})
+	})
+
+})
+
+var _ = Describe("Resize", func() {
+	It("Should complete successfully if qemu-img resize succeeds", func() {
+		quantity, err := resource.ParseQuantity("10Gi")
+		Expect(err).NotTo(HaveOccurred())
+		size := convertQuantityToQemuSize(quantity)
+		replaceExecFunction(mockExecFunction("", "", nil, "resize", "-f", "raw", "image", size), func() {
+			o := NewQEMUOperations()
+			err = o.Resize("image", quantity)
+			Expect(err).NotTo(HaveOccurred())
+		})
+	})
+
+	It("Should fail if qemu-img resize fails", func() {
+		quantity, err := resource.ParseQuantity("10Gi")
+		Expect(err).NotTo(HaveOccurred())
+		size := convertQuantityToQemuSize(quantity)
+		replaceExecFunction(mockExecFunction("", "exit 1", nil, "resize", "-f", "raw", "image", size), func() {
+			o := NewQEMUOperations()
+			err = o.Resize("image", quantity)
+			Expect(err).To(HaveOccurred())
+			Expect(strings.Contains(err.Error(), "Error resizing image image")).To(BeTrue())
+		})
+	})
+})
+
+var _ = Describe("Validate", func() {
+	imageName, _ := url.Parse("myimage.qcow2")
+	httpImage, _ := url.Parse("http://someurl/somewhere")
+	jsonArg := fmt.Sprintf("json: {\"file.driver\": \"%s\", \"file.url\": \"%s\", \"file.timeout\": %d}", httpImage.Scheme, httpImage, networkTimeoutSecs)
+
+	table.DescribeTable("Validate should", func(execfunc execFunctionType, errString string, image *url.URL) {
 		replaceExecFunction(execfunc, func() {
-			err := Validate(imageName, "qcow2")
+			err := Validate(image, 42949672960)
 
 			if errString == "" {
 				Expect(err).NotTo(HaveOccurred())
@@ -150,11 +220,13 @@ var _ = Describe("Importer", func() {
 			}
 		})
 	},
-		table.Entry("validate success", mockExecFunction(goodValidateJSON, ""), ""),
-		table.Entry("validate error", mockExecFunction("", "exit 1"), "exit 1"),
-		table.Entry("validate bad json", mockExecFunction(badValidateJSON, ""), "unexpected end of JSON input"),
-		table.Entry("validate bad format", mockExecFunction(badFormatValidateJSON, ""), fmt.Sprintf("Invalid format raw for image %s", imageName)),
-		table.Entry("validate has backing file", mockExecFunction(backingFileValidateJSON, ""), fmt.Sprintf("Image %s is invalid because it has backing file backing-file.qcow2", imageName)),
+		table.Entry("should return success", mockExecFunction(goodValidateJSON, "", expectedLimits, "info", "--output=json", imageName.String()), "", imageName),
+		table.Entry("should return success for http url", mockExecFunction(goodValidateJSON, "", expectedLimits, "info", "--output=json", jsonArg), "", httpImage),
+		table.Entry("should return error", mockExecFunction("", "exit 1", expectedLimits), "exit 1", imageName),
+		table.Entry("should return error on bad json", mockExecFunction(badValidateJSON, "", expectedLimits), "unexpected end of JSON input", imageName),
+		table.Entry("should return error on bad format", mockExecFunction(badFormatValidateJSON, "", expectedLimits), fmt.Sprintf("Invalid format raw2 for image %s", imageName), imageName),
+		table.Entry("should return error on invalid backing file", mockExecFunction(backingFileValidateJSON, "", expectedLimits), fmt.Sprintf("Image %s is invalid because it has backing file backing-file.qcow2", imageName), imageName),
+		table.Entry("should return error on shrink", mockExecFunction(hugeValidateJSON, "", expectedLimits), fmt.Sprintf("Virtual image size %d is larger than available size %d, shrink not yet supported.", 52949672960, 42949672960), imageName),
 	)
 
 })
@@ -174,11 +246,13 @@ var _ = Describe("Report Progress", func() {
 		By("Verifying the initial value is 0")
 		progress.WithLabelValues(ownerUID).Add(0)
 		metric := &dto.Metric{}
-		progress.WithLabelValues(ownerUID).Write(metric)
+		err := progress.WithLabelValues(ownerUID).Write(metric)
+		Expect(err).NotTo(HaveOccurred())
 		Expect(*metric.Counter.Value).To(Equal(float64(0)))
 		By("Calling reportProgress with value")
 		reportProgress("(45.34/100%)")
-		progress.WithLabelValues(ownerUID).Write(metric)
+		err = progress.WithLabelValues(ownerUID).Write(metric)
+		Expect(err).NotTo(HaveOccurred())
 		Expect(*metric.Counter.Value).To(Equal(45.34))
 	})
 
@@ -186,11 +260,13 @@ var _ = Describe("Report Progress", func() {
 		By("Verifying the initial value is 0")
 		progress.WithLabelValues(ownerUID).Add(0)
 		metric := &dto.Metric{}
-		progress.WithLabelValues(ownerUID).Write(metric)
+		err := progress.WithLabelValues(ownerUID).Write(metric)
+		Expect(err).NotTo(HaveOccurred())
 		Expect(*metric.Counter.Value).To(Equal(float64(0)))
 		By("Calling reportProgress with invalid value")
 		reportProgress("45.34")
-		progress.WithLabelValues(ownerUID).Write(metric)
+		err = progress.WithLabelValues(ownerUID).Write(metric)
+		Expect(err).NotTo(HaveOccurred())
 		Expect(*metric.Counter.Value).To(Equal(float64(0)))
 	})
 })
@@ -204,14 +280,51 @@ var _ = Describe("quantity to qemu", func() {
 	})
 })
 
-func mockExecFunction(output, errString string) execFunctionType {
-	return func(*system.ProcessLimitValues, func(string), string, ...string) (bytes []byte, err error) {
+var _ = Describe("Create blank image", func() {
+	It("Should complete successfully if qemu-img resize succeeds", func() {
+		quantity, err := resource.ParseQuantity("10Gi")
+		Expect(err).NotTo(HaveOccurred())
+		size := convertQuantityToQemuSize(quantity)
+		replaceExecFunction(mockExecFunction("", "", nil, "create", "-f", "raw", "image", size), func() {
+			err = CreateBlankImage("image", quantity)
+			Expect(err).NotTo(HaveOccurred())
+		})
+	})
+
+	It("Should fail if qemu-img resize fails", func() {
+		quantity, err := resource.ParseQuantity("10Gi")
+		Expect(err).NotTo(HaveOccurred())
+		size := convertQuantityToQemuSize(quantity)
+		replaceExecFunction(mockExecFunction("", "exit 1", nil, "create", "-f", "raw", "image", size), func() {
+			err = CreateBlankImage("image", quantity)
+			Expect(err).To(HaveOccurred())
+			Expect(strings.Contains(err.Error(), "could not create raw image with size ")).To(BeTrue())
+		})
+	})
+})
+
+func mockExecFunction(output, errString string, expectedLimits *system.ProcessLimitValues, checkArgs ...string) execFunctionType {
+	return func(limits *system.ProcessLimitValues, f func(string), cmd string, args ...string) (bytes []byte, err error) {
+		Expect(reflect.DeepEqual(expectedLimits, limits)).To(BeTrue())
+
+		for _, ca := range checkArgs {
+			found := false
+			for _, a := range args {
+				if ca == a {
+					found = true
+					break
+				}
+			}
+			Expect(found).To(BeTrue())
+		}
+
 		if output != "" {
 			bytes = []byte(output)
 		}
 		if errString != "" {
 			err = errors.New(errString)
 		}
+
 		return
 	}
 }

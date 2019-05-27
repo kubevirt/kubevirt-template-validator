@@ -2,6 +2,7 @@ package tests
 
 import (
 	"fmt"
+	"regexp"
 	"strings"
 	"time"
 
@@ -11,6 +12,7 @@ import (
 	"github.com/onsi/ginkgo/extensions/table"
 
 	v1 "k8s.io/api/core/v1"
+	storageV1 "k8s.io/api/storage/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	"kubevirt.io/containerized-data-importer/pkg/controller"
@@ -50,6 +52,11 @@ var _ = Describe("[vendor:cnv-qe@redhat.com][level:component]DataVolume tests", 
 			switch name {
 			case "import-http":
 				dataVolume = utils.NewDataVolumeWithHTTPImport(dataVolumeName, "1Gi", url)
+			case "import-https":
+				dataVolume = utils.NewDataVolumeWithHTTPImport(dataVolumeName, "1Gi", url)
+				cm, err := utils.CopyFileHostCertConfigMap(f.K8sClient, f.Namespace.Name)
+				Expect(err).To(BeNil())
+				dataVolume.Spec.Source.HTTP.CertConfigMap = cm
 			case "blank":
 				dataVolume = utils.NewDataVolumeForBlankRawImage(dataVolumeName, "1Gi")
 			case "upload":
@@ -63,6 +70,9 @@ var _ = Describe("[vendor:cnv-qe@redhat.com][level:component]DataVolume tests", 
 				dataVolume = utils.NewCloningDataVolume(dataVolumeName, "1Gi", sourcePvc)
 			case "import-registry":
 				dataVolume = utils.NewDataVolumeWithRegistryImport(dataVolumeName, "1Gi", url)
+				cm, err := utils.CopyRegistryCertConfigMap(f.K8sClient, f.Namespace.Name)
+				Expect(err).To(BeNil())
+				dataVolume.Spec.Source.Registry.CertConfigMap = cm
 			}
 
 			By(fmt.Sprintf("creating new datavolume %s", dataVolume.Name))
@@ -107,6 +117,86 @@ var _ = Describe("[vendor:cnv-qe@redhat.com][level:component]DataVolume tests", 
 			table.Entry("[rfe_id:1111][crit:high][test_id:1361]succeed creating blank image dv", "blank", "", "", "blank-image-dv", controller.ImportSucceeded, cdiv1.Succeeded),
 			table.Entry("[rfe_id:138][crit:high][test_id:1362]succeed creating upload dv", "upload", "", "", "upload-dv", controller.UploadReady, cdiv1.Succeeded),
 			table.Entry("[rfe_id:1115][crit:high][test_id:1478]succeed creating import dv with given valid registry url", "import-registry", "", utils.TinyCoreIsoRegistryURL, "dv-phase-test-4", controller.ImportSucceeded, cdiv1.Succeeded),
+			table.Entry("[rfe_id:1115][crit:high][test_id:1379]succeed creating import dv with given valid url (https)", "import-https", "", utils.HTTPSTinyCoreIsoURL, "dv-phase-test-1", controller.ImportSucceeded, cdiv1.Succeeded),
+		)
+	})
+
+	Describe("Verify DataVolume with block mode", func() {
+		var err error
+		var storageClass *storageV1.StorageClass
+		var pod *v1.Pod
+		var pv *v1.PersistentVolume
+
+		BeforeEach(func() {
+			By(fmt.Sprintf("Creating storageClass for Block PV"))
+			storageClass, err = f.CreateStorageClassFromDefinition(utils.NewStorageClassForBlockPVDefinition("manual"))
+			Expect(err).ToNot(HaveOccurred())
+
+			pod, err = utils.FindPodByPrefix(f.K8sClient, "cdi", "cdi-block-device", "kubevirt.io=cdi-block-device")
+			Expect(err).NotTo(HaveOccurred(), fmt.Sprintf("Unable to get pod %q", "cdi"+"/"+"cdi-block-device"))
+
+			nodeName := pod.Spec.NodeName
+
+			By(fmt.Sprintf("Creating Block PV"))
+			pv, err = f.CreatePVFromDefinition(utils.NewBlockPVDefinition("local-volume1", "1G", nil, "manual", nodeName))
+			Expect(err).ToNot(HaveOccurred())
+
+			By("Verify that PV's phase is Available.")
+			err = f.WaitTimeoutForPVReady(pv.Name, 60*time.Second)
+			Expect(err).ToNot(HaveOccurred())
+		})
+
+		AfterEach(func() {
+			err := utils.DeletePV(f.K8sClient, pv)
+			Expect(err).ToNot(HaveOccurred())
+
+			err = utils.DeleteStorageClass(f.K8sClient, storageClass)
+			Expect(err).ToNot(HaveOccurred())
+		})
+
+		table.DescribeTable("should", func(name, command, url, dataVolumeName, eventReason string, phase cdiv1.DataVolumePhase) {
+			var dataVolume *cdiv1.DataVolume
+
+			switch name {
+			case "import-http":
+				dataVolume = utils.NewDataVolumeWithHTTPImportToBlockPV(dataVolumeName, "1G", url)
+			}
+			By(fmt.Sprintf("creating new datavolume %s", dataVolume.Name))
+			dataVolume, err = utils.CreateDataVolumeFromDefinition(f.CdiClient, f.Namespace.Name, dataVolume)
+			Expect(err).ToNot(HaveOccurred())
+
+			By(fmt.Sprintf("waiting for datavolume to match phase %s", string(phase)))
+			utils.WaitForDataVolumePhase(f.CdiClient, f.Namespace.Name, phase, dataVolume.Name)
+			if err != nil {
+				PrintControllerLog(f)
+				dv, dverr := f.CdiClient.CdiV1alpha1().DataVolumes(f.Namespace.Name).Get(dataVolume.Name, metav1.GetOptions{})
+				if dverr != nil {
+					Fail(fmt.Sprintf("datavolume %s phase %s", dv.Name, dv.Status.Phase))
+				}
+			}
+			Expect(err).ToNot(HaveOccurred())
+
+			// verify PVC was created
+			By("verifying pvc was created")
+			_, err = f.K8sClient.CoreV1().PersistentVolumeClaims(dataVolume.Namespace).Get(dataVolume.Name, metav1.GetOptions{})
+			Expect(err).ToNot(HaveOccurred())
+
+			By(fmt.Sprint("Verifying event occurred"))
+			Eventually(func() bool {
+				events, err := RunKubectlCommand(f, "get", "events", "-n", dataVolume.Namespace)
+				if err == nil {
+					fmt.Fprintf(GinkgoWriter, "%s", events)
+					return strings.Contains(events, eventReason)
+				}
+				fmt.Fprintf(GinkgoWriter, "ERROR: %s\n", err.Error())
+				return false
+			}, timeout, pollingInterval).Should(BeTrue())
+
+			err = utils.DeleteDataVolume(f.CdiClient, f.Namespace.Name, dataVolume.Name)
+			Expect(err).ToNot(HaveOccurred())
+
+		},
+			table.Entry("succeed creating import dv with given valid url", "import-http", "", utils.TinyCoreIsoURL, "dv-phase-test-1", controller.ImportSucceeded, cdiv1.Succeeded),
 		)
 	})
 
@@ -152,6 +242,59 @@ var _ = Describe("[vendor:cnv-qe@redhat.com][level:component]DataVolume tests", 
 				Expect(deleted).To(BeTrue())
 				Expect(err).ToNot(HaveOccurred())
 			})
+		})
+	})
+
+	Describe("Create/Delete same datavolume in a loop", func() {
+		Context("retry loop", func() {
+			dataVolumeName := "dv1"
+			url := utils.TinyCoreIsoURL
+			numTries := 5
+			for i := 1; i <= numTries; i++ {
+				It(fmt.Sprintf("should succeed on loop %d", i), func() {
+					dataVolume := utils.NewDataVolumeWithHTTPImport(dataVolumeName, "1Gi", url)
+
+					By(fmt.Sprintf("creating new datavolume %s", dataVolume.Name))
+					dataVolume, err := utils.CreateDataVolumeFromDefinition(f.CdiClient, f.Namespace.Name, dataVolume)
+					Expect(err).ToNot(HaveOccurred())
+
+					By(fmt.Sprintf("waiting for datavolume to match phase %s", cdiv1.Succeeded))
+					utils.WaitForDataVolumePhase(f.CdiClient, f.Namespace.Name, cdiv1.Succeeded, dataVolume.Name)
+
+					By("deleting DataVolume")
+					err = utils.DeleteDataVolume(f.CdiClient, f.Namespace.Name, dataVolumeName)
+					Expect(err).ToNot(HaveOccurred())
+
+				})
+			}
+		})
+	})
+
+	Describe("Progress reporting on import datavolume", func() {
+		It("Should report progress while importing", func() {
+			dataVolume := utils.NewDataVolumeWithHTTPImport(dataVolumeName, "1Gi", utils.TinyCoreQcow2URLRateLimit)
+			By(fmt.Sprintf("creating new datavolume %s", dataVolume.Name))
+			dataVolume, err := utils.CreateDataVolumeFromDefinition(f.CdiClient, f.Namespace.Name, dataVolume)
+			Expect(err).ToNot(HaveOccurred())
+
+			//Due to the rate limit, this will take a while, so we can expect the phase to be in progress.
+			By(fmt.Sprintf("waiting for datavolume to match phase %s", string(cdiv1.ImportInProgress)))
+			utils.WaitForDataVolumePhase(f.CdiClient, f.Namespace.Name, cdiv1.ImportInProgress, dataVolume.Name)
+			if err != nil {
+				PrintControllerLog(f)
+				dv, dverr := f.CdiClient.CdiV1alpha1().DataVolumes(f.Namespace.Name).Get(dataVolume.Name, metav1.GetOptions{})
+				if dverr != nil {
+					Fail(fmt.Sprintf("datavolume %s phase %s", dv.Name, dv.Status.Phase))
+				}
+			}
+			Expect(err).ToNot(HaveOccurred())
+			progressRegExp := regexp.MustCompile("\\d{1,3}\\.?\\d{1,2}%")
+			Eventually(func() bool {
+				dv, err := f.CdiClient.CdiV1alpha1().DataVolumes(f.Namespace.Name).Get(dataVolume.Name, metav1.GetOptions{})
+				Expect(err).ToNot(HaveOccurred())
+				progress := dv.Status.Progress
+				return progressRegExp.MatchString(string(progress))
+			}, timeout, pollingInterval).Should(BeTrue())
 		})
 	})
 })

@@ -1,9 +1,12 @@
 package imageupload_test
 
 import (
+	"flag"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/golang/mock/gomock"
@@ -17,6 +20,7 @@ import (
 	fakek8sclient "k8s.io/client-go/kubernetes/fake"
 	"k8s.io/client-go/testing"
 
+	cdiv1 "kubevirt.io/containerized-data-importer/pkg/apis/core/v1alpha1"
 	fakecdiclient "kubevirt.io/containerized-data-importer/pkg/client/clientset/versioned/fake"
 	"kubevirt.io/kubevirt/pkg/kubecli"
 	"kubevirt.io/kubevirt/pkg/virtctl/imageupload"
@@ -29,14 +33,23 @@ const (
 	podPhaseAnnotation      = "cdi.kubevirt.io/storage.pod.phase"
 )
 
-var _ = Describe("ImageUpload", func() {
+const (
+	pvcNamespace = "default"
+	pvcName      = "test-pvc"
+	pvcSize      = "500Mi"
+	configName   = "config"
+)
 
-	const (
-		pvcNamespace = "default"
-		pvcName      = "test-pvc"
-		pvcSize      = "500Mi"
-		imagePath    = "../../../vendor/kubevirt.io/containerized-data-importer/tests/images/cirros-qcow2.img"
-	)
+var imagePath string
+
+func init() {
+	// how could this ever happen that we have a 13MB blob in our repo?
+	flag.StringVar(&imagePath, "cirros-image-path", "vendor/kubevirt.io/containerized-data-importer/tests/images/cirros-qcow2.img", "path to cirros test image")
+	flag.Parse()
+	imagePath = filepath.Join("../../../", imagePath)
+}
+
+var _ = Describe("ImageUpload", func() {
 
 	var (
 		ctrl       *gomock.Controller
@@ -59,6 +72,7 @@ var _ = Describe("ImageUpload", func() {
 	})
 
 	addPodPhaseAnnotation := func() {
+		defer GinkgoRecover()
 		time.Sleep(10 * time.Millisecond)
 		pvc, err := kubeClient.CoreV1().PersistentVolumeClaims(pvcNamespace).Get(pvcName, metav1.GetOptions{})
 		Expect(err).To(BeNil())
@@ -124,9 +138,37 @@ var _ = Describe("ImageUpload", func() {
 				Namespace: pvcNamespace,
 			},
 			Subsets: []v1.EndpointSubset{
-				{},
+				{
+					Addresses: []v1.EndpointAddress{
+						{
+							IP: "10.10.10.10",
+						},
+					},
+				},
 			},
 		}
+	}
+
+	createCDIConfig := func() *cdiv1.CDIConfig {
+		return &cdiv1.CDIConfig{
+			ObjectMeta: metav1.ObjectMeta{
+				Name: configName,
+			},
+			Spec: cdiv1.CDIConfigSpec{
+				UploadProxyURLOverride: nil,
+			},
+			Status: cdiv1.CDIConfigStatus{
+				UploadProxyURL: nil,
+			},
+		}
+	}
+
+	updateCDIConfig := func(config *cdiv1.CDIConfig) {
+		config, err := cdiClient.CdiV1alpha1().CDIConfigs().Update(config)
+		if err != nil {
+			fmt.Fprintf(GinkgoWriter, "Error: %v\n", err)
+		}
+		Expect(err).To(BeNil())
 	}
 
 	testInit := func(statusCode int, kubeobjects ...runtime.Object) {
@@ -134,9 +176,10 @@ var _ = Describe("ImageUpload", func() {
 		updateCalled = false
 
 		objs := append([]runtime.Object{createEndpoints()}, kubeobjects...)
+		config := createCDIConfig()
 
 		kubeClient = fakek8sclient.NewSimpleClientset(objs...)
-		cdiClient = fakecdiclient.NewSimpleClientset()
+		cdiClient = fakecdiclient.NewSimpleClientset(config)
 
 		kubecli.MockKubevirtClientInstance.EXPECT().CoreV1().Return(kubeClient.CoreV1()).AnyTimes()
 		kubecli.MockKubevirtClientInstance.EXPECT().CdiClient().Return(cdiClient).AnyTimes()
@@ -146,6 +189,9 @@ var _ = Describe("ImageUpload", func() {
 		server = httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(statusCode)
 		}))
+		config.Status.UploadProxyURL = &server.URL
+		updateCDIConfig(config)
+
 		imageupload.SetHTTPClientCreator(func(bool) *http.Client {
 			return server.Client()
 		})
@@ -205,6 +251,15 @@ var _ = Describe("ImageUpload", func() {
 			validatePVC()
 		})
 
+		It("Use CDI Config UploadProxyURL", func() {
+			testInit(http.StatusOK)
+			cmd := tests.NewRepeatableVirtctlCommand(commandName, "--pvc-name", pvcName, "--pvc-size", pvcSize,
+				"--insecure", "--image-path", imagePath)
+			Expect(cmd()).To(BeNil())
+			Expect(createCalled).To(BeTrue())
+			validatePVC()
+		})
+
 		DescribeTable("PVC does exist", func(pvc *v1.PersistentVolumeClaim) {
 			testInit(http.StatusOK, pvc)
 			cmd := tests.NewRepeatableVirtctlCommand(commandName, "--no-create", "--pvc-name", pvcName,
@@ -230,6 +285,17 @@ var _ = Describe("ImageUpload", func() {
 			Expect(cmd()).NotTo(BeNil())
 		})
 
+		It("uploadProxyURL not configured", func() {
+			testInit(http.StatusOK)
+			cmd := tests.NewRepeatableVirtctlCommand(commandName, "--pvc-name", pvcName, "--pvc-size", pvcSize,
+				"--insecure", "--image-path", imagePath)
+			config, err := cdiClient.CdiV1alpha1().CDIConfigs().Get(configName, metav1.GetOptions{})
+			Expect(err).To(BeNil())
+			config.Status.UploadProxyURL = nil
+			updateCDIConfig(config)
+			Expect(cmd()).NotTo(BeNil())
+		})
+
 		It("Upload fails", func() {
 			testInit(http.StatusInternalServerError)
 			cmd := tests.NewRepeatableVirtctlCommand(commandName, "--pvc-name", pvcName, "--pvc-size", pvcSize,
@@ -247,12 +313,24 @@ var _ = Describe("ImageUpload", func() {
 			Entry("No args", []string{"--pvc-name", pvcName, "--pvc-size", pvcSize, "--uploadproxy-url", "https://doesnotexist", "--insecure", "--image-path", imagePath}),
 			Entry("No name", []string{"--pvc-size", pvcSize, "--uploadproxy-url", "https://doesnotexist", "--insecure", "--image-path", imagePath}),
 			Entry("No size", []string{"--pvc-name", pvcName, "--uploadproxy-url", "https://doesnotexist", "--insecure", "--image-path", imagePath}),
-			Entry("No url", []string{"--pvc-name", pvcName, "--pvc-size", pvcSize, "--insecure", "--image-path", imagePath}),
 			Entry("No image path", []string{"--pvc-name", pvcName, "--pvc-size", pvcSize, "--uploadproxy-url", "https://doesnotexist", "--insecure"}),
 		)
 
 		AfterEach(func() {
 			testDone()
 		})
+	})
+
+	Context("URL validation", func() {
+		serverURL := "http://localhost:12345"
+		DescribeTable("Server URL validations", func(serverUrl string, expected string) {
+			path, err := imageupload.ConstructUploadProxyPath(serverUrl)
+			Expect(err).To(BeNil())
+			Expect(strings.Compare(path, expected)).To(BeZero())
+		},
+			Entry("Server URL with trailing slash should pass", serverURL+"/", serverURL+imageupload.UploadProxyURI),
+			Entry("Server URL with URI should pass", serverURL+imageupload.UploadProxyURI, serverURL+imageupload.UploadProxyURI),
+			Entry("Server URL only should pass", serverURL, serverURL+imageupload.UploadProxyURI),
+		)
 	})
 })

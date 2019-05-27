@@ -1,7 +1,6 @@
 package tests
 
 import (
-	"fmt"
 	"io/ioutil"
 	"os"
 
@@ -9,6 +8,7 @@ import (
 	. "github.com/onsi/ginkgo"
 	"github.com/onsi/ginkgo/extensions/table"
 	. "github.com/onsi/gomega"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	"kubevirt.io/containerized-data-importer/tests/framework"
 	"kubevirt.io/containerized-data-importer/tests/utils"
@@ -16,16 +16,17 @@ import (
 
 const (
 	dataVolumeName     = "test-dv"
+	pvcName            = "test-pvc"
 	validURL           = "http://www.example.com/example.img"
 	invalidURLFormat   = "invalidURL"
 	datavolumeTestFile = "manifests/datavolume.yaml"
 	destinationFile    = "/var/tmp/datavolume_test.yaml"
 )
 
-var _ = Describe("[rfe_id:1130][crit:medium][vendor:cnv-qe@redhat.com][level:component]Validation tests", func() {
+var _ = Describe("[rfe_id:1130][crit:medium][posneg:negative][vendor:cnv-qe@redhat.com][level:component]Validation tests", func() {
 	f := framework.NewFrameworkOrDie("api-validation-func-test")
 
-	Describe("[posneg:negative]Verify DataVolume validation", func() {
+	Describe("Verify DataVolume validation", func() {
 		Context("when creating Datavolume", func() {
 			dv := map[string]interface{}{}
 
@@ -60,7 +61,7 @@ var _ = Describe("[rfe_id:1130][crit:medium][vendor:cnv-qe@redhat.com][level:com
 				err = structToYamlFile(destinationFile, dv)
 				Expect(err).ToNot(HaveOccurred())
 
-				By(fmt.Sprint("Verifying kubectl create"))
+				By("Verifying kubectl create")
 				Eventually(func() bool {
 					_, err := RunKubectlCommand(f, "create", "-f", destinationFile, "-n", f.Namespace.Name)
 					if err != nil {
@@ -76,6 +77,7 @@ var _ = Describe("[rfe_id:1130][crit:medium][vendor:cnv-qe@redhat.com][level:com
 				table.Entry("[test_id:1324][crit:low]fail with s3 source with empty url", "s3", ""),
 				table.Entry("[test_id:1325]fail with empty PVC source namespace", "pvc", "", "test-pvc"),
 				table.Entry("[test_id:1326]fail with empty PVC source name", "pvc", "test", ""),
+				table.Entry("fail with source PVC doesn't exist", "pvc", "test", "test-pvc"),
 			)
 
 			table.DescribeTable("with Datavolume PVC size should", func(size string) {
@@ -88,7 +90,7 @@ var _ = Describe("[rfe_id:1130][crit:medium][vendor:cnv-qe@redhat.com][level:com
 				err = structToYamlFile(destinationFile, dv)
 				Expect(err).ToNot(HaveOccurred())
 
-				By(fmt.Sprint("Verifying kubectl apply"))
+				By("Verifying kubectl apply")
 				Eventually(func() bool {
 					_, err := RunKubectlCommand(f, "create", "-f", destinationFile, "-n", f.Namespace.Name)
 					if err != nil {
@@ -105,7 +107,7 @@ var _ = Describe("[rfe_id:1130][crit:medium][vendor:cnv-qe@redhat.com][level:com
 		})
 	})
 
-	Context("when creating Datavolume", func() {
+	Context("DataVolume Already Exists", func() {
 		BeforeEach(func() {
 			dataVolume := utils.NewDataVolumeWithHTTPImport(dataVolumeName, "500Mi", validURL)
 
@@ -118,7 +120,7 @@ var _ = Describe("[rfe_id:1130][crit:medium][vendor:cnv-qe@redhat.com][level:com
 			Expect(err).ToNot(HaveOccurred())
 		})
 		It("[test_id:1030]should fail creating an already existing DataVolume", func() {
-			By(fmt.Sprint("Verifying kubectl create"))
+			By("Verifying kubectl create")
 			Eventually(func() bool {
 
 				_, err := RunKubectlCommand(f, "create", "-f", datavolumeTestFile, "-n", f.Namespace.Name)
@@ -131,6 +133,58 @@ var _ = Describe("[rfe_id:1130][crit:medium][vendor:cnv-qe@redhat.com][level:com
 		})
 	})
 
+	Context("DataVolume destination PVC", func() {
+		BeforeEach(func() {
+			pvc := utils.NewPVCDefinition(dataVolumeName, "50Mi", nil, nil)
+
+			pvc, err := utils.CreatePVCFromDefinition(f.K8sClient, f.Namespace.Name, pvc)
+			Expect(err).ToNot(HaveOccurred())
+		})
+
+		AfterEach(func() {
+			pvc, err := f.K8sClient.CoreV1().PersistentVolumeClaims(f.Namespace.Name).Get(dataVolumeName, metav1.GetOptions{})
+			Expect(err).ToNot(HaveOccurred())
+			err = utils.DeletePVC(f.K8sClient, f.Namespace.Name, pvc)
+			Expect(err).ToNot(HaveOccurred())
+		})
+		It("[test_id:1759]should fail creating a DataVolume with already existing destination pvc", func() {
+			By("Verifying kubectl create")
+			Eventually(func() bool {
+
+				_, err := RunKubectlCommand(f, "create", "-f", datavolumeTestFile, "-n", f.Namespace.Name)
+				if err != nil {
+					return true
+				}
+				return false
+			}, timeout, pollingInterval).Should(BeTrue())
+
+		})
+	})
+
+	Context("when creating data volumes from manual manifests", func() {
+		table.DescribeTable("with manifests Datavolume should", func(destinationFile string, expectError bool) {
+			By("Verifying kubectl apply")
+			_, err := RunKubectlCommand(f, "create", "-f", destinationFile, "-n", f.Namespace.Name)
+			if expectError {
+				Expect(err).To(HaveOccurred())
+			} else {
+				Expect(err).ToNot(HaveOccurred())
+			}
+		},
+			table.Entry("[test_id:1760]fail with blank image source and contentType archive", "manifests/dvBlankArchive.yaml", true),
+			table.Entry("[test_id:1761]fail with invalid contentType", "manifests/dvInvalidContentType.yaml", true),
+			table.Entry("[test_id:1762]fail with missing source", "manifests/dvMissingSource.yaml", true),
+			table.Entry("[test_id:1763]fail with multiple sources", "manifests/dvMultiSource.yaml", true),
+			table.Entry("[test_id:1764]fail with invalid URL for http source", "manifests/dvInvalidURL.yaml", true),
+			table.Entry("[test_id:1765]fail with invalid source PVC", "manifests/dvInvalidSourcePVC.yaml", true),
+			table.Entry("[test_id:1766][posneg:positive]succeed with valid source http", "manifests/datavolume.yaml", false),
+			table.Entry("[test_id:1767]fail with missing PVC spec", "manifests/dvMissingPVCSpec.yaml", true),
+			table.Entry("fail with missing PVC accessModes", "manifests/dvMissingPVCAccessModes.yaml", true),
+			table.Entry("[test_id:1768]fail with missing resources spec", "manifests/dvMissingResourcesSpec.yaml", true),
+			table.Entry("[test_id:1769]fail with 0 size PVC", "manifests/dv0SizePVC.yaml", true),
+		)
+
+	})
 })
 
 func yamlFiletoStruct(fileName string, o *map[string]interface{}) error {

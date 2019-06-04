@@ -34,7 +34,7 @@ jobs:
       on:
         tags: true
         branch: master
-        repo: fromanirh/kubevirt-template-validator
+        repo: $TRAVIS_REPO_SLUG
 
 cache:
   directories:

@@ -13,14 +13,3 @@ oc adm policy add-scc-to-user privileged -n kubevirt -z kubevirt-operator
 oc create -f ${BASEPATH}/kubevirt.yaml
 oc project kubevirt
 sleep 10s
-
-# required by functests
-oc create -n default -f ${BASEPATH}/common-templates.yaml
-sleep 10s
-
-oc create -f ${MANIFESTPATH}/manifests/template-view-role.yaml
-oc create -f ${MANIFESTPATH}/manifests/service.yaml
-${BASEPATH}/wait-webhook.sh
-sleep 10s
-
-${MANIFESTPATH}/extract-ca.sh ${MANIFESTPATH}/manifests/validating-webhook.yaml | oc apply -f -

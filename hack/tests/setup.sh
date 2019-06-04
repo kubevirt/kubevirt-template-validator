@@ -12,6 +12,7 @@ ${ENVPATH}/try-login.sh
 sleep 10s
 
 ${ENVPATH}/install-cluster.sh
+${ENVPATH}/install-validator.sh
 
 export KUBECTL=oc
 export OC=oc

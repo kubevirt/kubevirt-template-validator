@@ -4,7 +4,7 @@ ROOT=$(cd $(dirname $0)/../../; pwd)
 
 set -o errexit
 set -o nounset
-set -o pipefail
+#set -o pipefail
 
 export OC=oc
 

@@ -5,13 +5,14 @@ fi
 
 # checking prereqs
 if [ -z "${OC}" ]; then
-	echo "please define the environment variable 'OC'"
-	exit 2
+	OC=oc
 fi
 if [ -z "${KUBECTL}" ]; then
-	echo "please define the environment variable 'KUBECTL'"
-	exit 2
+	KUBECTL="${OC}"
 fi
+
+export OC
+export KUBECTL
 
 MISSING=0
 #for EXE in jq; do

@@ -15,7 +15,7 @@ jobs:
   include:
   - stage: Tests
     name: "minishift"
-    env: CPLATFORM=minishift TARGET=functests KUBECTL=oc OC=oc V=5 CI_CONFIG_FEATURE_GATES=DataVolumes,LiveMigration,CPUManager CI_CONFIG_ADMISSION_WEBHOOK=1
+    env: CPLATFORM=minishift TARGET=functests V=5 CI_CONFIG_FEATURE_GATES=DataVolumes,LiveMigration,CPUManager CI_CONFIG_ADMISSION_WEBHOOK=1
 
   - stage: Build and Deploy
     name: Build and Deploy to GitHub

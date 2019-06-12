@@ -11,6 +11,9 @@ if [ -z "${KUBECTL}" ]; then
 	KUBECTL="${OC}"
 fi
 
+export OC
+export KUBECTL
+
 MISSING=0
 #for EXE in jq; do
 #	if [ ! which -- ${EXE} &> /dev/null ]; then

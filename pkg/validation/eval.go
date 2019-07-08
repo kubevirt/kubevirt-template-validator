@@ -28,6 +28,7 @@ import (
 
 	k6tv1 "kubevirt.io/kubevirt/pkg/api/v1"
 
+	"github.com/fromanirh/kubevirt-template-validator/internal/pkg/log"
 	k6tobjs "github.com/fromanirh/kubevirt-template-validator/pkg/kubevirtobjs"
 )
 
@@ -35,6 +36,7 @@ var (
 	ErrUnrecognizedRuleType error = errors.New("Unrecognized Rule type")
 	ErrDuplicateRuleName    error = errors.New("Duplicate Rule Name")
 	ErrMissingRequiredKey   error = errors.New("Missing required key")
+	ErrUnsatisfiedRule      error = errors.New("rule is not satisfied")
 )
 
 func isValidRule(r string) bool {
@@ -60,6 +62,12 @@ type Result struct {
 	failed bool
 }
 
+//Warn logs warnings into pod's log.
+//Warnings are not included in result response.
+func (r *Result) Warn(message string, e error) {
+	log.Log.V(4).Warningf(fmt.Sprintf("%s: %s", message, e.Error()))
+}
+
 func (r *Result) Fail(ru *Rule, e error) {
 	r.Status = append(r.Status, Report{
 		Ref:   ru,
@@ -83,8 +91,13 @@ func (r *Result) Applied(ru *Rule, satisfied bool, message string) {
 		Satisfied: satisfied,
 		Message:   message,
 	})
+
 	if !satisfied {
-		r.failed = true
+		if ru.JustWarning {
+			r.Warn(ru.Message, ErrUnsatisfiedRule)
+		} else {
+			r.failed = true
+		}
 	}
 }
 
@@ -172,7 +185,11 @@ func (ev *Evaluator) Evaluate(rules []Rule, vm *k6tv1.VirtualMachine) *Result {
 		// we simply skip the malformed rule, the error can go unnoticed.
 		// IOW, this is a policy decision
 		if ok, err := ev.isRuleWellFormed(r, names); !ok {
-			result.Fail(r, err)
+			if r.JustWarning {
+				result.Warn(r.Message, err)
+			} else {
+				result.Fail(r, err)
+			}
 			continue
 		}
 
@@ -180,7 +197,11 @@ func (ev *Evaluator) Evaluate(rules []Rule, vm *k6tv1.VirtualMachine) *Result {
 		ok, err := r.IsAppliableOn(vm)
 		if err != nil {
 			fmt.Fprintf(ev.Sink, "%s failed: not appliable: %v\n", r.Name, err)
-			result.Fail(r, err)
+			if r.JustWarning {
+				result.Warn(r.Message, err)
+			} else {
+				result.Fail(r, err)
+			}
 			continue
 		}
 		if !ok {
@@ -193,14 +214,22 @@ func (ev *Evaluator) Evaluate(rules []Rule, vm *k6tv1.VirtualMachine) *Result {
 		ra, err := r.Specialize(vm, refVm)
 		if err != nil {
 			fmt.Fprintf(ev.Sink, "%s failed: cannot specialize: %v\n", r.Name, err)
-			result.Fail(r, err)
+			if r.JustWarning {
+				result.Warn(r.Message, err)
+			} else {
+				result.Fail(r, err)
+			}
 			continue
 		}
 
 		satisfied, err := ra.Apply(vm, refVm)
 		if err != nil {
 			fmt.Fprintf(ev.Sink, "%s failed: cannot apply: %v\n", r.Name, err)
-			result.Fail(r, err)
+			if r.JustWarning {
+				result.Warn(r.Message, err)
+			} else {
+				result.Fail(r, err)
+			}
 			continue
 		}
 

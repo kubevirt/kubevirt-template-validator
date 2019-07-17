@@ -36,7 +36,8 @@ type Rule struct {
 	Path    string `json:"path"`
 	Message string `json:"message"`
 	// optional keys
-	Valid string `json:"valid",omitempty`
+	Valid       string `json:"valid",omitempty`
+	JustWarning bool   `json:"justWarning",omitempty"`
 	// arguments (optional keys)
 	Values    []string    `json:"values",omitempty"`
 	Min       interface{} `json:"min",omitempty`

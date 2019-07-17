@@ -1,0 +1,33 @@
+apiVersion: kubevirt.io/v1alpha3
+kind: VirtualMachine
+metadata:
+  creationTimestamp: null
+  labels:
+    kubevirt.io/vm: vm-test-09
+  name: vm-test-09
+  annotations:
+    vm.kubevirt.io/template: fedora-desktop-small-with-rules-incorrect-just-warning
+    vm.kubevirt.io/template-namespace: default
+spec:
+  running: false
+  template:
+    metadata:
+      creationTimestamp: null
+      labels:
+        kubevirt.io/vm: vm-test-09
+    spec:
+      domain:
+        devices:
+          interfaces:
+          - name: default
+            bridge: {}
+        machine:
+          type: "q35"
+        resources:
+          requests:
+            memory: 32M
+      networks:
+      - name: default
+        pod: {}
+      terminationGracePeriodSeconds: 0
+status: {}

@@ -102,6 +102,30 @@ var _ = Describe("Eval", func() {
 			Expect(res.Status[0].Satisfied).To(BeFalse())
 			Expect(res.Status[0].Error).To(BeNil())
 		})
+
+		It("Should not fail, when justWarning is set", func() {
+			rules := []validation.Rule{
+				{
+					Name: "rule-1",
+					Rule: "integer",
+					Min:  8,
+					// any legal path is fine
+					Path:        "jsonpath::.spec.domain.cpu.cores",
+					Message:     "testing",
+					JustWarning: true,
+				},
+			}
+			vm := k6tv1.VirtualMachine{}
+
+			ev := validation.Evaluator{Sink: GinkgoWriter}
+			res := ev.Evaluate(rules, &vm)
+
+			Expect(res.Succeeded()).To(BeTrue(), "succeeded")
+			Expect(len(res.Status)).To(Equal(1), "status length")
+			Expect(res.Status[0].Skipped).To(BeFalse(), "skipped")
+			Expect(res.Status[0].Satisfied).To(BeFalse(), "satisfied")
+			Expect(res.Status[0].Error).To(BeNil(), "error")
+		})
 	})
 
 	Context("With an initialized VM object", func() {
@@ -153,6 +177,61 @@ var _ = Describe("Eval", func() {
 			res := ev.Evaluate(rules, vmCirros)
 
 			Expect(res.Succeeded()).To(BeFalse())
+		})
+
+		It("should not fail, when justWarning is set", func() {
+			rules := []validation.Rule{
+				{
+					Name:        "disk bus",
+					Rule:        "enum",
+					Path:        "jsonpath::.spec.domain.devices.disks[*].disk.bus",
+					Message:     "testing",
+					Values:      []string{"sata"},
+					JustWarning: true,
+				},
+			}
+
+			ev := validation.Evaluator{Sink: GinkgoWriter}
+			res := ev.Evaluate(rules, vmCirros)
+
+			Expect(res.Succeeded()).To(BeTrue(), "succeeded")
+			Expect(len(res.Status)).To(Equal(1), "status length")
+			Expect(res.Status[0].Skipped).To(BeFalse(), "skipped")
+			Expect(res.Status[0].Satisfied).To(BeFalse(), "satisfied")
+			Expect(res.Status[0].Error).To(BeNil(), "error")
+		})
+
+		It("should fail, when one rule does not have justWarning set", func() {
+			rules := []validation.Rule{
+				{
+					Name:        "disk bus",
+					Rule:        "enum",
+					Path:        "jsonpath::.spec.domain.devices.disks[*].disk.bus",
+					Message:     "testing",
+					Values:      []string{"sata"},
+					JustWarning: true,
+				}, {
+					Name: "rule-2",
+					Rule: "integer",
+					Min:  6,
+					Max:  8,
+					// any legal path is fine
+					Path:    "jsonpath::.spec.domain.cpu.cores",
+					Message: "enough cores",
+				},
+			}
+
+			ev := validation.Evaluator{Sink: GinkgoWriter}
+			res := ev.Evaluate(rules, vmCirros)
+
+			Expect(res.Succeeded()).To(BeFalse(), "succeeded")
+			Expect(len(res.Status)).To(Equal(2), "status length")
+			Expect(res.Status[0].Skipped).To(BeFalse(), "skipped")
+			Expect(res.Status[0].Satisfied).To(BeFalse(), "satisfied")
+			Expect(res.Status[0].Error).To(BeNil(), "error")
+			Expect(res.Status[1].Skipped).To(BeFalse(), "skipped")
+			Expect(res.Status[1].Satisfied).To(BeFalse(), "satisfied")
+			Expect(res.Status[1].Error).To(BeNil(), "error")
 		})
 	})
 
@@ -257,6 +336,37 @@ var _ = Describe("Eval", func() {
 
 			causes := res.ToStatusCauses()
 			Expect(len(causes)).To(Equal(1))
+		})
+
+		It("should not fail, when rule with justWarning is not correct and another rule is correct", func() {
+			rules := []validation.Rule{
+				{
+					Name:        "disk bus",
+					Rule:        "enum",
+					Path:        "jsonpath::.spec.domain.devices.some.non.existing.path",
+					Message:     "testing",
+					Values:      []string{"sata"},
+					JustWarning: true,
+				}, {
+					Name: "rule-2",
+					Rule: "integer",
+					Min:  0,
+					Max:  8,
+					// any legal path is fine
+					Path:    "jsonpath::.spec.domain.cpu.cores",
+					Message: "enough cores",
+				},
+			}
+
+			ev := validation.Evaluator{Sink: GinkgoWriter}
+			res := ev.Evaluate(rules, vmCirros)
+
+			Expect(res.Succeeded()).To(BeTrue(), "succeeded")
+			Expect(len(res.Status)).To(Equal(1), "status length")
+			//status for second rule which should pass
+			Expect(res.Status[0].Skipped).To(BeFalse(), "skipped")
+			Expect(res.Status[0].Satisfied).To(BeTrue(), "satisfied")
+			Expect(res.Status[0].Error).To(BeNil(), "error")
 		})
 	})
 })

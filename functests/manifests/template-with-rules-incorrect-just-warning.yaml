@@ -1,7 +1,7 @@
 apiVersion: template.openshift.io/v1
 kind: Template
 metadata:
-  name: fedora-desktop-small-with-rules-incorrect
+  name: fedora-desktop-small-with-rules-incorrect-just-warning
   annotations:
     openshift.io/display-name: "Fedora 23+ VM"
     description: >-
@@ -44,12 +44,6 @@ metadata:
           "min": 67108864,
           "max": 536870912,
           "justWarning": true
-        },
-        {
-          "name": "SupportedChipset",
-          "path": "jsonpath::.spec.domain.machine.type",
-          "rule": "value-set",
-          "values": ["q35"]
         }
       ]
   labels:

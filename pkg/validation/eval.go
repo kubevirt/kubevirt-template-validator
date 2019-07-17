@@ -65,7 +65,7 @@ type Result struct {
 //Warn logs warnings into pod's log.
 //Warnings are not included in result response.
 func (r *Result) Warn(message string, e error) {
-	log.Log.V(4).Warningf(fmt.Sprintf("%s: %s", message, e.Error()))
+	log.Log.Warningf(fmt.Sprintf("%s: %s", message, e.Error()))
 }
 
 func (r *Result) Fail(ru *Rule, e error) {
@@ -185,11 +185,7 @@ func (ev *Evaluator) Evaluate(rules []Rule, vm *k6tv1.VirtualMachine) *Result {
 		// we simply skip the malformed rule, the error can go unnoticed.
 		// IOW, this is a policy decision
 		if ok, err := ev.isRuleWellFormed(r, names); !ok {
-			if r.JustWarning {
-				result.Warn(r.Message, err)
-			} else {
-				result.Fail(r, err)
-			}
+			result.Fail(r, err)
 			continue
 		}
 
@@ -214,22 +210,14 @@ func (ev *Evaluator) Evaluate(rules []Rule, vm *k6tv1.VirtualMachine) *Result {
 		ra, err := r.Specialize(vm, refVm)
 		if err != nil {
 			fmt.Fprintf(ev.Sink, "%s failed: cannot specialize: %v\n", r.Name, err)
-			if r.JustWarning {
-				result.Warn(r.Message, err)
-			} else {
-				result.Fail(r, err)
-			}
+			result.Fail(r, err)
 			continue
 		}
 
 		satisfied, err := ra.Apply(vm, refVm)
 		if err != nil {
 			fmt.Fprintf(ev.Sink, "%s failed: cannot apply: %v\n", r.Name, err)
-			if r.JustWarning {
-				result.Warn(r.Message, err)
-			} else {
-				result.Fail(r, err)
-			}
+			result.Fail(r, err)
 			continue
 		}
 

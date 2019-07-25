@@ -20,7 +20,6 @@
 package tests_test
 
 import (
-	"flag"
 	"fmt"
 	"strings"
 	"time"
@@ -29,10 +28,10 @@ import (
 	. "github.com/onsi/gomega"
 	k8sv1 "k8s.io/api/core/v1"
 
-	v1 "kubevirt.io/kubevirt/pkg/api/v1"
+	v1 "kubevirt.io/client-go/api/v1"
+	"kubevirt.io/client-go/kubecli"
 	hooksv1alpha1 "kubevirt.io/kubevirt/pkg/hooks/v1alpha1"
 	hooksv1alpha2 "kubevirt.io/kubevirt/pkg/hooks/v1alpha2"
-	"kubevirt.io/kubevirt/pkg/kubecli"
 	"kubevirt.io/kubevirt/tests"
 )
 
@@ -40,7 +39,7 @@ const hookSidecarImage = "example-hook-sidecar"
 
 var _ = Describe("HookSidecars", func() {
 
-	flag.Parse()
+	tests.FlagParse()
 
 	virtClient, err := kubecli.GetKubevirtClient()
 	tests.PanicOnError(err)
@@ -135,7 +134,7 @@ func getVmDomainXml(virtCli kubecli.KubevirtClient, vmi *v1.VirtualMachineInstan
 
 func RenderSidecar(version string) map[string]string {
 	return map[string]string{
-		"hooks.kubevirt.io/hookSidecars":              fmt.Sprintf(`[{"args": ["--version", "%s"],"image": "%s/%s:%s", "imagePullPolicy": "IfNotPresent"}]`, version, tests.KubeVirtRepoPrefix, hookSidecarImage, tests.KubeVirtVersionTag),
+		"hooks.kubevirt.io/hookSidecars":              fmt.Sprintf(`[{"args": ["--version", "%s"],"image": "%s/%s:%s", "imagePullPolicy": "IfNotPresent"}]`, version, tests.KubeVirtUtilityRepoPrefix, hookSidecarImage, tests.KubeVirtUtilityVersionTag),
 		"smbios.vm.kubevirt.io/baseBoardManufacturer": "Radical Edward",
 	}
 }

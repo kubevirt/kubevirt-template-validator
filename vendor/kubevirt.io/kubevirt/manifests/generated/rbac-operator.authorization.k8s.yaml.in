@@ -331,10 +331,12 @@ rules:
 - apiGroups:
   - subresources.kubevirt.io
   resources:
+  - virtualmachines/start
+  - virtualmachines/stop
   - virtualmachines/restart
   verbs:
-  - put
   - update
+  - put
 - apiGroups:
   - kubevirt.io
   resources:
@@ -342,6 +344,7 @@ rules:
   - virtualmachineinstances
   - virtualmachineinstancepresets
   - virtualmachineinstancereplicasets
+  - virtualmachineinstancemigrations
   verbs:
   - get
   - delete
@@ -361,10 +364,12 @@ rules:
 - apiGroups:
   - subresources.kubevirt.io
   resources:
+  - virtualmachines/start
+  - virtualmachines/stop
   - virtualmachines/restart
   verbs:
-  - put
   - update
+  - put
 - apiGroups:
   - kubevirt.io
   resources:
@@ -372,6 +377,7 @@ rules:
   - virtualmachineinstances
   - virtualmachineinstancepresets
   - virtualmachineinstancereplicasets
+  - virtualmachineinstancemigrations
   verbs:
   - get
   - delete
@@ -387,6 +393,7 @@ rules:
   - virtualmachineinstances
   - virtualmachineinstancepresets
   - virtualmachineinstancereplicasets
+  - virtualmachineinstancemigrations
   verbs:
   - get
   - list

@@ -21,7 +21,8 @@ package tests_test
 
 import (
 	"crypto/tls"
-	"flag"
+	"encoding/json"
+
 	"fmt"
 	"time"
 
@@ -33,21 +34,48 @@ import (
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/rand"
 	"k8s.io/client-go/util/cert"
-	"k8s.io/client-go/util/cert/triple"
 
-	v1 "kubevirt.io/kubevirt/pkg/api/v1"
-	"kubevirt.io/kubevirt/pkg/kubecli"
+	v1 "kubevirt.io/client-go/api/v1"
+	"kubevirt.io/client-go/kubecli"
+	"kubevirt.io/kubevirt/pkg/certificates/triple"
 	migrations2 "kubevirt.io/kubevirt/pkg/util/migrations"
 	"kubevirt.io/kubevirt/tests"
 )
 
-var _ = Describe("Migrations", func() {
-	flag.Parse()
+var _ = Describe("[rfe_id:393][crit:high[vendor:cnv-qe@redhat.com][level:system] VM Live Migration", func() {
+	tests.FlagParse()
 
 	virtClient, err := kubecli.GetKubevirtClient()
 	tests.PanicOnError(err)
+
+	var originalKubeVirtConfig *k8sv1.ConfigMap
+
+	tests.BeforeAll(func() {
+
+		originalKubeVirtConfig, err = virtClient.CoreV1().ConfigMaps(tests.KubeVirtInstallNamespace).Get("kubevirt-config", metav1.GetOptions{})
+		if err != nil && !errors.IsNotFound(err) {
+			Expect(err).ToNot(HaveOccurred())
+		}
+
+		if errors.IsNotFound(err) {
+			// create an empty kubevirt-config configmap if none exists.
+			cfgMap := &k8sv1.ConfigMap{
+				ObjectMeta: metav1.ObjectMeta{Name: "kubevirt-config"},
+				Data: map[string]string{
+					"feature-gates": "",
+				},
+			}
+
+			originalKubeVirtConfig, err = virtClient.CoreV1().ConfigMaps(tests.KubeVirtInstallNamespace).Create(cfgMap)
+			if err != nil {
+				Expect(err).ToNot(HaveOccurred())
+			}
+
+		}
+	})
 
 	BeforeEach(func() {
 		tests.BeforeTestCleanup()
@@ -64,9 +92,28 @@ var _ = Describe("Migrations", func() {
 	})
 
 	AfterEach(func() {
+		curKubeVirtConfig, err := virtClient.CoreV1().ConfigMaps(tests.KubeVirtInstallNamespace).Get("kubevirt-config", metav1.GetOptions{})
+		if err != nil {
+			Expect(err).ToNot(HaveOccurred())
+		}
+
+		// if revision changed, patch data and reload everything
+		if curKubeVirtConfig.ResourceVersion != originalKubeVirtConfig.ResourceVersion {
+			// Add  Patch
+			newData, err := json.Marshal(originalKubeVirtConfig.Data)
+			Expect(err).ToNot(HaveOccurred())
+			data := fmt.Sprintf(`[{ "op": "replace", "path": "/data", "value": %s }]`, string(newData))
+
+			newConfig, err := virtClient.CoreV1().ConfigMaps(tests.KubeVirtInstallNamespace).Patch("kubevirt-config", types.JSONPatchType, []byte(data))
+			Expect(err).ToNot(HaveOccurred())
+
+			// update the restored originalKubeVirtConfig
+			originalKubeVirtConfig = newConfig
+		}
+
 	})
 
-	runVMIAndExpectLaunch := func(vmi *v1.VirtualMachineInstance, timeout int) *v1.VirtualMachineInstance {
+	runVMIAndExpectLaunchWithIgnoreWarningArg := func(vmi *v1.VirtualMachineInstance, timeout int, ignoreWarnings bool) *v1.VirtualMachineInstance {
 		By("Starting a VirtualMachineInstance")
 		var obj *v1.VirtualMachineInstance
 		var err error
@@ -75,10 +122,22 @@ var _ = Describe("Migrations", func() {
 			return err
 		}, timeout, 1*time.Second).ShouldNot(HaveOccurred())
 		By("Waiting until the VirtualMachineInstance starts")
-		tests.WaitForSuccessfulVMIStartWithTimeout(obj, timeout)
+		if ignoreWarnings {
+			tests.WaitForSuccessfulVMIStartWithTimeoutIgnoreWarnings(obj, timeout)
+		} else {
+			tests.WaitForSuccessfulVMIStartWithTimeout(obj, timeout)
+		}
 		vmi, err = virtClient.VirtualMachineInstance(tests.NamespaceTestDefault).Get(vmi.Name, &metav1.GetOptions{})
 		Expect(err).ToNot(HaveOccurred())
 		return vmi
+	}
+
+	runVMIAndExpectLaunch := func(vmi *v1.VirtualMachineInstance, timeout int) *v1.VirtualMachineInstance {
+		return runVMIAndExpectLaunchWithIgnoreWarningArg(vmi, timeout, false)
+	}
+
+	runVMIAndExpectLaunchIgnoreWarnings := func(vmi *v1.VirtualMachineInstance, timeout int) *v1.VirtualMachineInstance {
+		return runVMIAndExpectLaunchWithIgnoreWarningArg(vmi, timeout, true)
 	}
 
 	confirmVMIPostMigration := func(vmi *v1.VirtualMachineInstance, migrationUID string) {
@@ -92,8 +151,8 @@ var _ = Describe("Migrations", func() {
 		Expect(vmi.Status.MigrationState.EndTimestamp).ToNot(BeNil())
 		Expect(vmi.Status.MigrationState.TargetNode).To(Equal(vmi.Status.NodeName))
 		Expect(vmi.Status.MigrationState.TargetNode).ToNot(Equal(vmi.Status.MigrationState.SourceNode))
-		Expect(vmi.Status.MigrationState.Completed).To(Equal(true))
-		Expect(vmi.Status.MigrationState.Failed).To(Equal(false))
+		Expect(vmi.Status.MigrationState.Completed).To(BeTrue())
+		Expect(vmi.Status.MigrationState.Failed).To(BeFalse())
 		Expect(vmi.Status.MigrationState.TargetNodeAddress).ToNot(Equal(""))
 		Expect(string(vmi.Status.MigrationState.MigrationUID)).To(Equal(migrationUID))
 
@@ -112,8 +171,8 @@ var _ = Describe("Migrations", func() {
 		Expect(vmi.Status.MigrationState.EndTimestamp).ToNot(BeNil())
 		Expect(vmi.Status.MigrationState.SourceNode).To(Equal(vmi.Status.NodeName))
 		Expect(vmi.Status.MigrationState.TargetNode).ToNot(Equal(vmi.Status.MigrationState.SourceNode))
-		Expect(vmi.Status.MigrationState.Completed).To(Equal(true))
-		Expect(vmi.Status.MigrationState.Failed).To(Equal(true))
+		Expect(vmi.Status.MigrationState.Completed).To(BeTrue())
+		Expect(vmi.Status.MigrationState.Failed).To(BeTrue())
 		Expect(vmi.Status.MigrationState.TargetNodeAddress).ToNot(Equal(""))
 		Expect(string(vmi.Status.MigrationState.MigrationUID)).To(Equal(migrationUID))
 
@@ -132,7 +191,7 @@ var _ = Describe("Migrations", func() {
 			}
 			return false
 
-		}, timeout, 1*time.Second).Should(Equal(true))
+		}, timeout, 1*time.Second).Should(BeTrue())
 
 		By("Retrieving the VMI post migration")
 		vmi, err = virtClient.VirtualMachineInstance(vmi.Namespace).Get(vmi.Name, &metav1.GetOptions{})
@@ -146,8 +205,8 @@ var _ = Describe("Migrations", func() {
 		Expect(vmi.Status.MigrationState.TargetNode).ToNot(Equal(vmi.Status.MigrationState.SourceNode))
 		Expect(vmi.Status.MigrationState.TargetNodeAddress).ToNot(Equal(""))
 		Expect(string(vmi.Status.MigrationState.MigrationUID)).To(Equal(migrationUID))
-		Expect(vmi.Status.MigrationState.Failed).To(Equal(true))
-		Expect(vmi.Status.MigrationState.AbortRequested).To(Equal(true))
+		Expect(vmi.Status.MigrationState.Failed).To(BeTrue())
+		Expect(vmi.Status.MigrationState.AbortRequested).To(BeTrue())
 
 		By("Verifying the VMI's is in the running state")
 		Expect(vmi.Status.Phase).To(Equal(v1.Running))
@@ -174,7 +233,7 @@ var _ = Describe("Migrations", func() {
 			}
 			return false
 
-		}, timeout, 1*time.Second).Should(Equal(true))
+		}, timeout, 1*time.Second).Should(BeTrue())
 		return uid
 	}
 	runAndCancelMigration := func(migration *v1.VirtualMachineInstanceMigration, vmi *v1.VirtualMachineInstance, timeout int) string {
@@ -202,7 +261,7 @@ var _ = Describe("Migrations", func() {
 			}
 			return false
 
-		}, timeout, 1*time.Second).Should(Equal(true))
+		}, timeout, 1*time.Second).Should(BeTrue())
 
 		By("Cancelling a Migration")
 		Expect(virtClient.VirtualMachineInstanceMigration(migration.Namespace).Delete(migration.Name, &metav1.DeleteOptions{})).To(Succeed(), "Migration should be deleted successfully")
@@ -228,7 +287,7 @@ var _ = Describe("Migrations", func() {
 			}
 			return false
 
-		}, timeout, 1*time.Second).Should(Equal(true))
+		}, timeout, 1*time.Second).Should(BeTrue())
 
 		By("Cancelling a Migration")
 		Expect(virtClient.VirtualMachineInstanceMigration(migration.Namespace).Delete(migration.Name, &metav1.DeleteOptions{})).To(Succeed(), "Migration should be deleted successfully")
@@ -257,13 +316,56 @@ var _ = Describe("Migrations", func() {
 			}
 			return false
 
-		}, timeout, 1*time.Second).Should(Equal(true))
+		}, timeout, 1*time.Second).Should(BeTrue())
 		return uid
 	}
 
 	Describe("Starting a VirtualMachineInstance ", func() {
+		Context("with a bridge network interface", func() {
+			It("should reject a migration of a vmi with a brdige interface", func() {
+				vmi := tests.NewRandomVMIWithEphemeralDisk(tests.ContainerDiskFor(tests.ContainerDiskAlpine))
+				vmi.Spec.Domain.Devices.Interfaces = []v1.Interface{
+					{
+						Name: "default",
+						InterfaceBindingMethod: v1.InterfaceBindingMethod{
+							Bridge: &v1.InterfaceBridge{},
+						},
+					},
+				}
+				vmi = runVMIAndExpectLaunch(vmi, 240)
+
+				// Verify console on last iteration to verify the VirtualMachineInstance is still booting properly
+				// after being restarted multiple times
+				By("Checking that the VirtualMachineInstance console has expected output")
+				expecter, err := tests.LoggedInAlpineExpecter(vmi)
+				Expect(err).To(BeNil())
+				expecter.Close()
+
+				for _, c := range vmi.Status.Conditions {
+					if c.Type == v1.VirtualMachineInstanceIsMigratable {
+						Expect(c.Status).To(Equal(k8sv1.ConditionFalse))
+					}
+				}
+
+				// execute a migration, wait for finalized state
+				migration := tests.NewRandomMigration(vmi.Name, vmi.Namespace)
+
+				By("Starting a Migration")
+				_, err = virtClient.VirtualMachineInstanceMigration(migration.Namespace).Create(migration)
+				Expect(err).ToNot(BeNil())
+				Expect(err.Error()).To(ContainSubstring("InterfaceNotLiveMigratable"))
+
+				// delete VMI
+				By("Deleting the VMI")
+				err = virtClient.VirtualMachineInstance(vmi.Namespace).Delete(vmi.Name, &metav1.DeleteOptions{})
+				Expect(err).To(BeNil())
+
+				By("Waiting for VMI to disappear")
+				tests.WaitForVirtualMachineToDisappearWithTimeout(vmi, 120)
+			})
+		})
 		Context("with a Cirros disk", func() {
-			It("should be successfully migrated multiple times with cloud-init disk", func() {
+			It("[test_id:1783]should be successfully migrated multiple times with cloud-init disk", func() {
 
 				vmi := tests.NewRandomVMIWithEphemeralDisk(tests.ContainerDiskFor(tests.ContainerDiskCirros))
 				tests.AddUserData(vmi, "cloud-init", "#!/bin/bash\necho 'hello'\n")
@@ -297,6 +399,84 @@ var _ = Describe("Migrations", func() {
 
 			})
 		})
+		Context("with auto converge enabled", func() {
+			var options metav1.GetOptions
+			var cfgMap *k8sv1.ConfigMap
+			var originalMigrationConfig string
+			var kubevirtConfig = "kubevirt-config"
+			BeforeEach(func() {
+				tests.BeforeTestCleanup()
+
+				// set autoconverge flag
+				options = metav1.GetOptions{}
+				cfgMap, err = virtClient.CoreV1().ConfigMaps(tests.KubeVirtInstallNamespace).Get(kubevirtConfig, options)
+				Expect(err).ToNot(HaveOccurred())
+				originalMigrationConfig = cfgMap.Data["migrations"]
+				cfgMap.Data["migrations"] = `{"allowAutoConverge": true}`
+
+				_, err = virtClient.CoreV1().ConfigMaps(tests.KubeVirtInstallNamespace).Update(cfgMap)
+				Expect(err).ToNot(HaveOccurred())
+				time.Sleep(5 * time.Second)
+
+			}, 60)
+
+			AfterEach(func() {
+				cfgMap, err = virtClient.CoreV1().ConfigMaps(tests.KubeVirtInstallNamespace).Get(kubevirtConfig, options)
+				Expect(err).ToNot(HaveOccurred())
+				cfgMap.Data["migrations"] = originalMigrationConfig
+				_, err = virtClient.CoreV1().ConfigMaps(tests.KubeVirtInstallNamespace).Update(cfgMap)
+				Expect(err).ToNot(HaveOccurred())
+			}, 60)
+
+			It("should complete a migration", func() {
+				vmi := tests.NewRandomFedoraVMIWitGuestAgent()
+				vmi.Spec.Domain.Resources.Requests[k8sv1.ResourceMemory] = resource.MustParse("1Gi")
+
+				By("Starting the VirtualMachineInstance")
+				vmi = runVMIAndExpectLaunch(vmi, 240)
+
+				getOptions := &metav1.GetOptions{}
+				var updatedVmi *v1.VirtualMachineInstance
+				By("Checking that the VirtualMachineInstance console has expected output")
+				expecter, expecterErr := tests.LoggedInFedoraExpecter(vmi)
+				Expect(expecterErr).To(BeNil())
+				defer expecter.Close()
+
+				// Need to wait for cloud init to finnish and start the agent inside the vmi.
+				Eventually(func() bool {
+					updatedVmi, err = virtClient.VirtualMachineInstance(tests.NamespaceTestDefault).Get(vmi.Name, getOptions)
+					Expect(err).ToNot(HaveOccurred())
+					for _, condition := range updatedVmi.Status.Conditions {
+						if condition.Type == "AgentConnected" && condition.Status == "True" {
+							return true
+						}
+					}
+					return false
+				}, 420*time.Second, 2).Should(BeTrue(), "Should have agent connected condition")
+
+				By("Run a stress test")
+				_, err = expecter.ExpectBatch([]expect.Batcher{
+					&expect.BSnd{S: "stress --vm 1 --vm-bytes 600M --vm-keep --timeout 1600s&\n"},
+				}, 15*time.Second)
+				Expect(err).ToNot(HaveOccurred(), "should run a stress test")
+
+				// execute a migration, wait for finalized state
+				By("Starting the Migration")
+				migration := tests.NewRandomMigration(vmi.Name, vmi.Namespace)
+				migrationUID := runMigrationAndExpectCompletion(migration, 240)
+
+				// check VMI, confirm migration state
+				confirmVMIPostMigration(vmi, migrationUID)
+
+				// delete VMI
+				By("Deleting the VMI")
+				err = virtClient.VirtualMachineInstance(vmi.Namespace).Delete(vmi.Name, &metav1.DeleteOptions{})
+				Expect(err).To(BeNil())
+
+				By("Waiting for VMI to disappear")
+				tests.WaitForVirtualMachineToDisappearWithTimeout(vmi, 240)
+			})
+		})
 		Context("with a shared ISCSI Filesystem PVC", func() {
 			var options metav1.GetOptions
 			var cfgMap *k8sv1.ConfigMap
@@ -307,24 +487,27 @@ var _ = Describe("Migrations", func() {
 				if !tests.HasCDI() {
 					Skip("Skip DataVolume tests when CDI is not present")
 				}
+
+				tests.SkipIfVersionAboveOrEqual("re-enable this once https://github.com/kubevirt/kubevirt/issues/2272 is fixed", "1.13.3")
+
 				// set unsafe migration flag
 				options = metav1.GetOptions{}
-				cfgMap, err = virtClient.CoreV1().ConfigMaps(namespaceKubevirt).Get(kubevirtConfig, options)
+				cfgMap, err = virtClient.CoreV1().ConfigMaps(tests.KubeVirtInstallNamespace).Get(kubevirtConfig, options)
 				Expect(err).ToNot(HaveOccurred())
 				originalMigrationConfig = cfgMap.Data["migrations"]
 				cfgMap.Data["migrations"] = `{"unsafeMigrationOverride": true}`
 
-				_, err = virtClient.CoreV1().ConfigMaps(namespaceKubevirt).Update(cfgMap)
+				_, err = virtClient.CoreV1().ConfigMaps(tests.KubeVirtInstallNamespace).Update(cfgMap)
 				Expect(err).ToNot(HaveOccurred())
 				time.Sleep(5 * time.Second)
 
 			}, 60)
 
 			AfterEach(func() {
-				cfgMap, err = virtClient.CoreV1().ConfigMaps(namespaceKubevirt).Get(kubevirtConfig, options)
+				cfgMap, err = virtClient.CoreV1().ConfigMaps(tests.KubeVirtInstallNamespace).Get(kubevirtConfig, options)
 				Expect(err).ToNot(HaveOccurred())
 				cfgMap.Data["migrations"] = originalMigrationConfig
-				_, err = virtClient.CoreV1().ConfigMaps(namespaceKubevirt).Update(cfgMap)
+				_, err = virtClient.CoreV1().ConfigMaps(tests.KubeVirtInstallNamespace).Update(cfgMap)
 				Expect(err).ToNot(HaveOccurred())
 			}, 60)
 
@@ -435,6 +618,7 @@ var _ = Describe("Migrations", func() {
 		Context("with an Alpine shared ISCSI PVC", func() {
 			var pvName string
 			BeforeEach(func() {
+				tests.SkipIfVersionAboveOrEqual("re-enable this once https://github.com/kubevirt/kubevirt/issues/2272 is fixed", "1.13.3")
 				pvName = "test-iscsi-lun" + rand.String(48)
 				// Start a ISCSI POD and service
 				By("Starting an iSCSI POD")
@@ -448,7 +632,7 @@ var _ = Describe("Migrations", func() {
 				// create a new PV and PVC (PVs can't be reused)
 				tests.DeletePvAndPvc(pvName)
 			}, 60)
-			It("should migrate a VMI with shared and non-shared disks", func() {
+			It("[test_id:1854]should migrate a VMI with shared and non-shared disks", func() {
 				// Start the VirtualMachineInstance with PVC and Ephemeral Disks
 				vmi := tests.NewRandomVMIWithPVC(pvName)
 				image := tests.ContainerDiskFor(tests.ContainerDiskAlpine)
@@ -477,7 +661,7 @@ var _ = Describe("Migrations", func() {
 				By("Waiting for VMI to disappear")
 				tests.WaitForVirtualMachineToDisappearWithTimeout(vmi, 120)
 			})
-			It("should be successfully migrated multiple times", func() {
+			It("[test_id:1377]should be successfully migrated multiple times", func() {
 				// Start the VirtualMachineInstance with the PVC attached
 				vmi := tests.NewRandomVMIWithPVC(pvName)
 				vmi = runVMIAndExpectLaunch(vmi, 180)
@@ -507,6 +691,7 @@ var _ = Describe("Migrations", func() {
 		Context("with an Cirros shared ISCSI PVC", func() {
 			var pvName string
 			BeforeEach(func() {
+				tests.SkipIfVersionAboveOrEqual("re-enable this once https://github.com/kubevirt/kubevirt/issues/2272 is fixed", "1.13.3")
 				pvName = "test-iscsi-lun" + rand.String(48)
 				// Start a ISCSI POD and service
 				By("Starting an iSCSI POD")
@@ -532,6 +717,9 @@ var _ = Describe("Migrations", func() {
 				Expect(err).To(BeNil())
 				expecter.Close()
 
+				By("Checking that MigrationMethod is set to BlockMigration")
+				Expect(vmi.Status.MigrationMethod).To(Equal(v1.BlockMigration))
+
 				// execute a migration, wait for finalized state
 				By("Starting the Migration for iteration")
 				migration := tests.NewRandomMigration(vmi.Name, vmi.Namespace)
@@ -549,6 +737,83 @@ var _ = Describe("Migrations", func() {
 				tests.WaitForVirtualMachineToDisappearWithTimeout(vmi, 120)
 			})
 		})
+		Context("with an Fedora shared NFS PVC, cloud init and service account", func() {
+			var pvName string
+			var vmi *v1.VirtualMachineInstance
+			BeforeEach(func() {
+				pvName = "test-nfs" + rand.String(48)
+				// Prepare a NFS backed PV
+				By("Starting an NFS POD")
+				os := string(tests.ContainerDiskFedora)
+				nfsIP := tests.CreateNFSTargetPOD(os)
+				// create a new PV and PVC (PVs can't be reused)
+				By("create a new NFS PV and PVC")
+				tests.CreateNFSPvAndPvc(pvName, "5Gi", nfsIP, os)
+			}, 60)
+
+			AfterEach(func() {
+				// delete VMI
+				By("Deleting the VMI")
+				err = virtClient.VirtualMachineInstance(vmi.Namespace).Delete(vmi.Name, &metav1.DeleteOptions{})
+				Expect(err).To(BeNil())
+
+				By("Waiting for VMI to disappear")
+				tests.WaitForVirtualMachineToDisappearWithTimeout(vmi, 120)
+				// create a new PV and PVC (PVs can't be reused)
+				tests.DeletePvAndPvc(pvName)
+			}, 60)
+			It("[test_id:1785]  should be migrated successfully", func() {
+				// Start the VirtualMachineInstance with the PVC attached
+				By("Creating the  VMI")
+				vmi = tests.NewRandomVMIWithPVC(pvName)
+				vmi.Spec.Domain.Resources.Requests[k8sv1.ResourceMemory] = resource.MustParse("1G")
+				vmi.Spec.Domain.Devices.Rng = &v1.Rng{}
+
+				// add userdata for guest agent and service account mount
+				secretDiskSerial := "D23YZ9W6WA5DJ487"
+				mountSvcAccCommands := fmt.Sprintf(`
+					mkdir /mnt/servacc
+					mount /dev/$(lsblk --nodeps -no name,serial | grep %s | cut -f1 -d' ') /mnt/servacc
+				`, secretDiskSerial)
+				userData := fmt.Sprintf("%s\n%s", tests.GetGuestAgentUserData(), mountSvcAccCommands)
+				tests.AddUserData(vmi, "cloud-init", userData)
+
+				tests.AddServiceAccountDisk(vmi, "default")
+				disks := vmi.Spec.Domain.Devices.Disks
+				disks[len(disks)-1].Serial = secretDiskSerial
+
+				vmi = runVMIAndExpectLaunchIgnoreWarnings(vmi, 180)
+
+				// Wait for cloud init to finish and start the agent inside the vmi.
+				tests.WaitAgentConnected(virtClient, vmi)
+
+				By("Checking that the VirtualMachineInstance console has expected output")
+				expecter, err := tests.LoggedInFedoraExpecter(vmi)
+				Expect(err).To(BeNil())
+				expecter.Close()
+
+				// execute a migration, wait for finalized state
+				By("Starting the Migration for iteration")
+				migration := tests.NewRandomMigration(vmi.Name, vmi.Namespace)
+				migrationUID := runMigrationAndExpectCompletion(migration, 180)
+
+				// check VMI, confirm migration state
+				confirmVMIPostMigration(vmi, migrationUID)
+
+				By("Checking that the migrated VirtualMachineInstance console has expected output")
+				expecter, err = tests.ReLoggedInFedoraExpecter(vmi, 60)
+				defer expecter.Close()
+				Expect(err).To(BeNil())
+
+				By("Checking that the service account is mounted")
+				_, err = expecter.ExpectBatch([]expect.Batcher{
+					&expect.BSnd{S: "cat /mnt/servacc/namespace\n"},
+					&expect.BExp{R: tests.NamespaceTestDefault},
+				}, 30*time.Second)
+				Expect(err).ToNot(HaveOccurred())
+
+			})
+		})
 
 		Context("migration security", func() {
 			var options metav1.GetOptions
@@ -559,40 +824,31 @@ var _ = Describe("Migrations", func() {
 			BeforeEach(func() {
 				// update migration timeouts
 				options = metav1.GetOptions{}
-				cfgMap, err = virtClient.CoreV1().ConfigMaps(namespaceKubevirt).Get(kubevirtConfig, options)
+				cfgMap, err = virtClient.CoreV1().ConfigMaps(tests.KubeVirtInstallNamespace).Get(kubevirtConfig, options)
 				Expect(err).ToNot(HaveOccurred())
 				originalMigrationConfig = cfgMap.Data["migrations"]
 				cfgMap.Data["migrations"] = `{"bandwidthPerMigration" : "1Mi"}`
 
-				_, err = virtClient.CoreV1().ConfigMaps(namespaceKubevirt).Update(cfgMap)
+				_, err = virtClient.CoreV1().ConfigMaps(tests.KubeVirtInstallNamespace).Update(cfgMap)
 				Expect(err).ToNot(HaveOccurred())
 				time.Sleep(5 * time.Second)
 			})
 			AfterEach(func() {
-				cfgMap, err = virtClient.CoreV1().ConfigMaps(namespaceKubevirt).Get(kubevirtConfig, options)
+				cfgMap, err = virtClient.CoreV1().ConfigMaps(tests.KubeVirtInstallNamespace).Get(kubevirtConfig, options)
 				Expect(err).ToNot(HaveOccurred())
 				cfgMap.Data["migrations"] = originalMigrationConfig
-				_, err = virtClient.CoreV1().ConfigMaps(namespaceKubevirt).Update(cfgMap)
+				_, err = virtClient.CoreV1().ConfigMaps(tests.KubeVirtInstallNamespace).Update(cfgMap)
 				Expect(err).ToNot(HaveOccurred())
 			})
-			It("should secure migrations with TLS", func() {
+			It("[test_id:2303][posneg:negative] should secure migrations with TLS", func() {
 				vmi := tests.NewRandomFedoraVMIWitGuestAgent()
 				vmi.Spec.Domain.Resources.Requests[k8sv1.ResourceMemory] = resource.MustParse("1Gi")
 
 				By("Starting the VirtualMachineInstance")
 				vmi = runVMIAndExpectLaunch(vmi, 240)
 
-				// Need to wait for cloud init to finnish and start the agent inside the vmi.
-				Eventually(func() bool {
-					updatedVmi, err := virtClient.VirtualMachineInstance(tests.NamespaceTestDefault).Get(vmi.Name, &metav1.GetOptions{})
-					Expect(err).ToNot(HaveOccurred())
-					for _, condition := range updatedVmi.Status.Conditions {
-						if condition.Type == "AgentConnected" && condition.Status == "True" {
-							return true
-						}
-					}
-					return false
-				}, 420*time.Second, 2).Should(BeTrue(), "Should have agent connected condition")
+				// Need to wait for cloud init to finish and start the agent inside the vmi.
+				tests.WaitAgentConnected(virtClient, vmi)
 
 				// Run
 				expecter, expecterErr := tests.LoggedInFedoraExpecter(vmi)
@@ -667,47 +923,36 @@ var _ = Describe("Migrations", func() {
 			BeforeEach(func() {
 				// update migration timeouts
 				options = metav1.GetOptions{}
-				cfgMap, err = virtClient.CoreV1().ConfigMaps(namespaceKubevirt).Get(kubevirtConfig, options)
+				cfgMap, err = virtClient.CoreV1().ConfigMaps(tests.KubeVirtInstallNamespace).Get(kubevirtConfig, options)
 				Expect(err).ToNot(HaveOccurred())
 				originalMigrationConfig = cfgMap.Data["migrations"]
 				cfgMap.Data["migrations"] = `{"progressTimeout" : 5, "completionTimeoutPerGiB": 5}`
 
-				_, err = virtClient.CoreV1().ConfigMaps(namespaceKubevirt).Update(cfgMap)
+				_, err = virtClient.CoreV1().ConfigMaps(tests.KubeVirtInstallNamespace).Update(cfgMap)
 				Expect(err).ToNot(HaveOccurred())
 				time.Sleep(5 * time.Second)
 			})
 			AfterEach(func() {
-				cfgMap, err = virtClient.CoreV1().ConfigMaps(namespaceKubevirt).Get(kubevirtConfig, options)
+				cfgMap, err = virtClient.CoreV1().ConfigMaps(tests.KubeVirtInstallNamespace).Get(kubevirtConfig, options)
 				Expect(err).ToNot(HaveOccurred())
 				cfgMap.Data["migrations"] = originalMigrationConfig
-				_, err = virtClient.CoreV1().ConfigMaps(namespaceKubevirt).Update(cfgMap)
+				_, err = virtClient.CoreV1().ConfigMaps(tests.KubeVirtInstallNamespace).Update(cfgMap)
 				Expect(err).ToNot(HaveOccurred())
 			})
-			It("should abort a vmi migration without progress", func() {
+			It("[test_id:2227]should abort a vmi migration without progress", func() {
 				vmi := tests.NewRandomFedoraVMIWitGuestAgent()
 				vmi.Spec.Domain.Resources.Requests[k8sv1.ResourceMemory] = resource.MustParse("1Gi")
 
 				By("Starting the VirtualMachineInstance")
 				vmi = runVMIAndExpectLaunch(vmi, 240)
 
-				getOptions := &metav1.GetOptions{}
-				var updatedVmi *v1.VirtualMachineInstance
 				By("Checking that the VirtualMachineInstance console has expected output")
 				expecter, expecterErr := tests.LoggedInFedoraExpecter(vmi)
 				Expect(expecterErr).To(BeNil())
 				defer expecter.Close()
 
-				// Need to wait for cloud init to finnish and start the agent inside the vmi.
-				Eventually(func() bool {
-					updatedVmi, err = virtClient.VirtualMachineInstance(tests.NamespaceTestDefault).Get(vmi.Name, getOptions)
-					Expect(err).ToNot(HaveOccurred())
-					for _, condition := range updatedVmi.Status.Conditions {
-						if condition.Type == "AgentConnected" && condition.Status == "True" {
-							return true
-						}
-					}
-					return false
-				}, 420*time.Second, 2).Should(BeTrue(), "Should have agent connected condition")
+				// Need to wait for cloud init to finish and start the agent inside the vmi.
+				tests.WaitAgentConnected(virtClient, vmi)
 
 				By("Run a stress test")
 				_, err = expecter.ExpectBatch([]expect.Batcher{
@@ -735,6 +980,7 @@ var _ = Describe("Migrations", func() {
 		Context("with an Cirros non-shared ISCSI PVC", func() {
 			var pvName string
 			BeforeEach(func() {
+				tests.SkipIfVersionAboveOrEqual("re-enable this once https://github.com/kubevirt/kubevirt/issues/2272 is fixed", "1.13.3")
 				pvName = "test-iscsi-lun" + rand.String(48)
 				// Start a ISCSI POD and service
 				By("Starting an iSCSI POD")
@@ -748,7 +994,7 @@ var _ = Describe("Migrations", func() {
 				// create a new PV and PVC (PVs can't be reused)
 				tests.DeletePvAndPvc(pvName)
 			}, 60)
-			It("should reject migrations for a non-migratable vmi", func() {
+			It("[test_id:1862][posneg:negative]should reject migrations for a non-migratable vmi", func() {
 				// Start the VirtualMachineInstance with the PVC attached
 				vmi := tests.NewRandomVMIWithPVC(pvName)
 				tests.AddUserData(vmi, "cloud-init", "#!/bin/bash\necho 'hello'\n")
@@ -782,31 +1028,22 @@ var _ = Describe("Migrations", func() {
 				By("Waiting for VMI to disappear")
 				tests.WaitForVirtualMachineToDisappearWithTimeout(vmi, 120)
 			})
-			It("should be able successfully cancel a migration", func() {
+		})
+		Context("live migration cancelation", func() {
+			It("[test_id:2226]should be able successfully cancel a migration", func() {
 				vmi := tests.NewRandomFedoraVMIWitGuestAgent()
 				vmi.Spec.Domain.Resources.Requests[k8sv1.ResourceMemory] = resource.MustParse("1Gi")
 
 				By("Starting the VirtualMachineInstance")
 				vmi = runVMIAndExpectLaunch(vmi, 240)
 
-				getOptions := &metav1.GetOptions{}
-				var updatedVmi *v1.VirtualMachineInstance
 				By("Checking that the VirtualMachineInstance console has expected output")
 				expecter, expecterErr := tests.LoggedInFedoraExpecter(vmi)
 				Expect(expecterErr).To(BeNil())
 				defer expecter.Close()
 
-				// Need to wait for cloud init to finnish and start the agent inside the vmi.
-				Eventually(func() bool {
-					updatedVmi, err = virtClient.VirtualMachineInstance(tests.NamespaceTestDefault).Get(vmi.Name, getOptions)
-					Expect(err).ToNot(HaveOccurred())
-					for _, condition := range updatedVmi.Status.Conditions {
-						if condition.Type == "AgentConnected" && condition.Status == "True" {
-							return true
-						}
-					}
-					return false
-				}, 420*time.Second, 2).Should(BeTrue(), "Should have agent connected condition")
+				// Need to wait for cloud init to finish and start the agent inside the vmi.
+				tests.WaitAgentConnected(virtClient, vmi)
 
 				By("Run a stress test")
 				_, err = expecter.ExpectBatch([]expect.Batcher{
@@ -873,7 +1110,7 @@ var _ = Describe("Migrations", func() {
 
 	Context("with sata disks", func() {
 
-		It("VM with containerDisk + CloudInit + ServiceAccount + ConfigMap + Secret", func() {
+		It("[test_id:1853]VM with containerDisk + CloudInit + ServiceAccount + ConfigMap + Secret", func() {
 			configMapName := "configmap-" + rand.String(5)
 			secretName := "secret-" + rand.String(5)
 
@@ -924,12 +1161,12 @@ var _ = Describe("Migrations", func() {
 			tests.CleanNodes()
 		})
 
-		Context("with a VMI running with an eviction strategy set", func() {
+		Context("[ref_id:2293] with a VMI running with an eviction strategy set", func() {
 
 			var vmi *v1.VirtualMachineInstance
 
 			BeforeEach(func() {
-				vmi = vmiWithEvictionStrategy()
+				vmi = cirrosVMIWithEvictionStrategy()
 			})
 
 			It("should block the eviction api", func() {
@@ -939,33 +1176,47 @@ var _ = Describe("Migrations", func() {
 				Expect(errors.IsTooManyRequests(err)).To(BeTrue())
 			})
 
+			It("should recreate the PDB if VMIs with similar names are recreated", func() {
+				for x := 0; x < 3; x++ {
+					By("creating the VMI")
+					_, err := virtClient.VirtualMachineInstance(tests.NamespaceTestDefault).Create(vmi)
+					Expect(err).ToNot(HaveOccurred())
+
+					By("checking that the PDB appeared")
+					Eventually(func() []v1beta1.PodDisruptionBudget {
+						pdbs, err := virtClient.PolicyV1beta1().PodDisruptionBudgets(tests.NamespaceTestDefault).List(metav1.ListOptions{})
+						Expect(err).ToNot(HaveOccurred())
+						return pdbs.Items
+					}, 3*time.Second, 500*time.Millisecond).Should(HaveLen(1))
+					By("deleting the VMI")
+					err = virtClient.VirtualMachineInstance(tests.NamespaceTestDefault).Delete(vmi.Name, &metav1.DeleteOptions{})
+					Expect(err).ToNot(HaveOccurred())
+					By("checking that the PDB disappeared")
+					Eventually(func() []v1beta1.PodDisruptionBudget {
+						pdbs, err := virtClient.PolicyV1beta1().PodDisruptionBudgets(tests.NamespaceTestDefault).List(metav1.ListOptions{})
+						Expect(err).ToNot(HaveOccurred())
+						return pdbs.Items
+					}, 3*time.Second, 500*time.Millisecond).Should(HaveLen(0))
+					Eventually(func() bool {
+						_, err := virtClient.VirtualMachineInstance(tests.NamespaceTestDefault).Get(vmi.Name, &metav1.GetOptions{})
+						return errors.IsNotFound(err)
+					}, 30*time.Second, 500*time.Millisecond).Should(BeTrue())
+				}
+			})
+
 			It("should block the eviction api while a slow migration is in progress", func() {
-				vmi = tests.NewRandomFedoraVMIWitGuestAgent()
-				strategy := v1.EvictionStrategyLiveMigrate
-				vmi.Spec.EvictionStrategy = &strategy
-				vmi.Spec.Domain.Resources.Requests[k8sv1.ResourceMemory] = resource.MustParse("1Gi")
+				vmi = fedoraVMIWithEvictionStrategy()
 
 				By("Starting the VirtualMachineInstance")
 				vmi = runVMIAndExpectLaunch(vmi, 240)
 
-				getOptions := &metav1.GetOptions{}
 				By("Checking that the VirtualMachineInstance console has expected output")
 				expecter, expecterErr := tests.LoggedInFedoraExpecter(vmi)
 				Expect(expecterErr).To(BeNil())
 				defer expecter.Close()
 
-				var updatedVmi *v1.VirtualMachineInstance
-				// Need to wait for cloud init to finnish and start the agent inside the vmi.
-				Eventually(func() bool {
-					updatedVmi, err = virtClient.VirtualMachineInstance(tests.NamespaceTestDefault).Get(vmi.Name, getOptions)
-					Expect(err).ToNot(HaveOccurred())
-					for _, condition := range updatedVmi.Status.Conditions {
-						if condition.Type == "AgentConnected" && condition.Status == "True" {
-							return true
-						}
-					}
-					return false
-				}, 420*time.Second, 2).Should(BeTrue(), "Should have agent connected condition")
+				By("Waiting for user agent connection")
+				tests.WaitAgentConnected(virtClient, vmi)
 
 				By("Run a stress test to dirty some pages and slow down the migration")
 				_, err = expecter.ExpectBatch([]expect.Batcher{
@@ -995,6 +1246,7 @@ var _ = Describe("Migrations", func() {
 					Expect(errors.IsTooManyRequests(err)).To(BeTrue())
 				}
 				By("Verifying that both pods are protected by the PodDisruptionBudget for the whole migration")
+				getOptions := &metav1.GetOptions{}
 				Eventually(func() v1.VirtualMachineInstanceMigrationPhase {
 					currentMigration, err := virtClient.VirtualMachineInstanceMigration(vmi.Namespace).Get(migration.Name, getOptions)
 					Expect(err).ToNot(HaveOccurred())
@@ -1011,28 +1263,243 @@ var _ = Describe("Migrations", func() {
 				}, 180*time.Second, 500*time.Millisecond).Should(Equal(v1.MigrationSucceeded))
 			})
 
-			Context("with node tainted", func() {
+			Context("with node tainted during node drain", func() {
+				It("[test_id:2221] should migrate a VMI under load to another node", func() {
+					tests.SkipIfVersionBelow("Eviction of completed pods requires v1.13 and above", "1.13")
+					vmi = fedoraVMIWithEvictionStrategy()
 
-				It("should migrate the VMI to another node", func() {
+					By("Starting the VirtualMachineInstance")
 					vmi = runVMIAndExpectLaunch(vmi, 180)
+
+					By("Checking that the VirtualMachineInstance console has expected output")
+					expecter, expecterErr := tests.LoggedInFedoraExpecter(vmi)
+					Expect(expecterErr).To(BeNil())
+					defer expecter.Close()
+
+					By("Waiting for user agent connection")
+					tests.WaitAgentConnected(virtClient, vmi)
+
+					// Put VMI under load
+					By("Run a stress test to dirty some pages and slow down the migration")
+					_, err = expecter.ExpectBatch([]expect.Batcher{
+						&expect.BSnd{S: "stress --vm 1 --vm-bytes 600M --vm-keep --timeout 10s\n"},
+					}, 15*time.Second)
+					Expect(err).ToNot(HaveOccurred(), "should run a stress test")
+
+					// Taint Node.
+					By("Tainting node with kubevirt.io/drain=NoSchedule")
 					node := vmi.Status.NodeName
 					tests.Taint(node, "kubevirt.io/drain", k8sv1.TaintEffectNoSchedule)
-					Eventually(func() string {
+
+					// Drain Node using cli client
+					k8sClient := tests.GetK8sCmdClient()
+					if k8sClient == "oc" {
+						_, _, err = tests.RunCommandWithNS("", k8sClient, "adm", "drain", node, "--delete-local-data", "--ignore-daemonsets=true", "--force", "--timeout=180s")
+						Expect(err).ToNot(HaveOccurred(), "Draining node")
+					} else {
+						_, _, err = tests.RunCommandWithNS("", k8sClient, "drain", node, "--delete-local-data", "--ignore-daemonsets=true", "--force", "--timeout=180s")
+						Expect(err).ToNot(HaveOccurred(), "Draining node")
+					}
+
+					// verify VMI migrated and lives on another node now.
+					Eventually(func() error {
 						vmi, err := virtClient.VirtualMachineInstance(vmi.Namespace).Get(vmi.Name, &metav1.GetOptions{})
-						Expect(err).ToNot(HaveOccurred())
-						return vmi.Status.NodeName
-					}, 60*time.Second, 1*time.Second).ShouldNot(Equal(node))
-				})
+						if err != nil {
+							return err
+						} else if vmi.Status.NodeName == node {
+							return fmt.Errorf("VMI still exist on the same node")
+						} else if vmi.Status.MigrationState == nil || vmi.Status.MigrationState.SourceNode != node {
+							return fmt.Errorf("VMI did not migrate yet")
+						}
 
+						// VMI should still be running at this point. If it
+						// isn't, then there's nothing to be waiting on.
+						Expect(vmi.Status.Phase).To(Equal(v1.Running))
+
+						return nil
+					}, 180*time.Second, 1*time.Second).ShouldNot(HaveOccurred())
+				}, 600)
+
+				It("[test_id:2222] should migrate a VMI when custom taint key is configured", func() {
+					tests.SkipIfVersionBelow("Eviction of completed pods requires v1.13 and above", "1.13")
+					vmi = cirrosVMIWithEvictionStrategy()
+
+					By("Configuring a custom nodeDrainTaintKey in kubevirt-config")
+					cfg, err := virtClient.CoreV1().ConfigMaps(tests.KubeVirtInstallNamespace).Get("kubevirt-config", metav1.GetOptions{})
+					Expect(err).ToNot(HaveOccurred())
+
+					// set a custom taint value
+					cfg.Data["migrations"] = "nodeDrainTaintKey: kubevirt.io/alt-drain"
+
+					newData, err := json.Marshal(cfg.Data)
+					Expect(err).ToNot(HaveOccurred())
+					data := fmt.Sprintf(`[{ "op": "replace", "path": "/data", "value": %s }]`, string(newData))
+
+					_, err = virtClient.CoreV1().ConfigMaps(tests.KubeVirtInstallNamespace).Patch("kubevirt-config", types.JSONPatchType, []byte(data))
+					Expect(err).ToNot(HaveOccurred())
+					// this sleep is to allow the config to stick. The informers on virt-controller have to
+					// be notified of the config change.
+					time.Sleep(3)
+
+					By("Starting the VirtualMachineInstance")
+					vmi = runVMIAndExpectLaunch(vmi, 180)
+
+					// Taint Node.
+					By("Tainting node with kubevirt.io/alt-drain=NoSchedule")
+					node := vmi.Status.NodeName
+					tests.Taint(node, "kubevirt.io/alt-drain", k8sv1.TaintEffectNoSchedule)
+
+					// Drain Node using cli client
+					k8sClient := tests.GetK8sCmdClient()
+					if k8sClient == "oc" {
+						_, _, err = tests.RunCommandWithNS("", k8sClient, "adm", "drain", node, "--delete-local-data", "--ignore-daemonsets=true", "--force", "--timeout=180s")
+						Expect(err).ToNot(HaveOccurred(), "Draining node")
+					} else {
+						_, _, err = tests.RunCommandWithNS("", k8sClient, "drain", node, "--delete-local-data", "--ignore-daemonsets=true", "--force", "--timeout=180s")
+						Expect(err).ToNot(HaveOccurred(), "Draining node")
+					}
+
+					// verify VMI migrated and lives on another node now.
+					Eventually(func() error {
+						vmi, err := virtClient.VirtualMachineInstance(vmi.Namespace).Get(vmi.Name, &metav1.GetOptions{})
+						if err != nil {
+							return err
+						} else if vmi.Status.NodeName == node {
+							return fmt.Errorf("VMI still exist on the same node")
+						} else if vmi.Status.MigrationState == nil || vmi.Status.MigrationState.SourceNode != node {
+							return fmt.Errorf("VMI did not migrate yet")
+						}
+						return nil
+					}, 180*time.Second, 1*time.Second).ShouldNot(HaveOccurred())
+				}, 400)
+
+				It("[test_id:2224] should handle mixture of VMs with different eviction strategies.", func() {
+					tests.SkipIfVersionBelow("Eviction of completed pods requires v1.13 and above", "1.13")
+
+					vmi_evict1 := cirrosVMIWithEvictionStrategy()
+					vmi_evict2 := cirrosVMIWithEvictionStrategy()
+					vmi_noevict := tests.NewRandomVMIWithEphemeralDiskAndUserdata(tests.ContainerDiskFor(tests.ContainerDiskCirros), "#!/bin/bash\necho 'hello'\n")
+
+					labelKey := "testkey"
+					labels := map[string]string{
+						labelKey: "",
+					}
+
+					// give an affinity rule to ensure the vmi's get placed on the same node.
+					affinityRule := &k8sv1.Affinity{
+						PodAffinity: &k8sv1.PodAffinity{
+							PreferredDuringSchedulingIgnoredDuringExecution: []k8sv1.WeightedPodAffinityTerm{
+								{
+									Weight: int32(1),
+									PodAffinityTerm: k8sv1.PodAffinityTerm{
+										LabelSelector: &metav1.LabelSelector{
+											MatchExpressions: []metav1.LabelSelectorRequirement{
+												{
+													Key:      labelKey,
+													Operator: metav1.LabelSelectorOpIn,
+													Values:   []string{string("")}},
+											},
+										},
+										TopologyKey: "kubernetes.io/hostname",
+									},
+								},
+							},
+						},
+					}
+
+					vmi_evict1.Labels = labels
+					vmi_evict2.Labels = labels
+					vmi_noevict.Labels = labels
+
+					vmi_evict1.Spec.Affinity = affinityRule
+					vmi_evict2.Spec.Affinity = affinityRule
+					vmi_noevict.Spec.Affinity = affinityRule
+
+					By("Starting the VirtualMachineInstance with eviction set to live migration")
+					vm_evict1 := tests.NewRandomVirtualMachine(vmi_evict1, false)
+					vm_evict2 := tests.NewRandomVirtualMachine(vmi_evict2, false)
+					vm_noevict := tests.NewRandomVirtualMachine(vmi_noevict, false)
+
+					// post VMs
+					vm_evict1, err = virtClient.VirtualMachine(tests.NamespaceTestDefault).Create(vm_evict1)
+					Expect(err).ToNot(HaveOccurred())
+					vm_evict2, err = virtClient.VirtualMachine(tests.NamespaceTestDefault).Create(vm_evict2)
+					Expect(err).ToNot(HaveOccurred())
+					vm_noevict, err = virtClient.VirtualMachine(tests.NamespaceTestDefault).Create(vm_noevict)
+					Expect(err).ToNot(HaveOccurred())
+
+					// Start VMs
+					vm_evict1 = tests.StartVirtualMachine(vm_evict1)
+					vm_evict2 = tests.StartVirtualMachine(vm_evict2)
+					vm_noevict = tests.StartVirtualMachine(vm_noevict)
+
+					// Get VMIs
+					vmi_evict1, err = virtClient.VirtualMachineInstance(vmi_evict1.Namespace).Get(vmi_evict1.Name, &metav1.GetOptions{})
+					vmi_evict2, err = virtClient.VirtualMachineInstance(vmi_evict1.Namespace).Get(vmi_evict2.Name, &metav1.GetOptions{})
+					vmi_noevict, err = virtClient.VirtualMachineInstance(vmi_evict1.Namespace).Get(vmi_noevict.Name, &metav1.GetOptions{})
+
+					By("Verifying all VMIs are collcated on the same node")
+					Expect(vmi_evict1.Status.NodeName).To(Equal(vmi_evict2.Status.NodeName))
+					Expect(vmi_evict1.Status.NodeName).To(Equal(vmi_noevict.Status.NodeName))
+
+					// Taint Node.
+					By("Tainting node with kubevirt.io/drain=NoSchedule")
+					node := vmi_evict1.Status.NodeName
+					tests.Taint(node, "kubevirt.io/drain", k8sv1.TaintEffectNoSchedule)
+
+					// Drain Node using cli client
+					By("Draining using kubectl drain")
+					k8sClient := tests.GetK8sCmdClient()
+					if k8sClient == "oc" {
+						_, _, err = tests.RunCommandWithNS("", k8sClient, "adm", "drain", node, "--delete-local-data", "--pod-selector=kubevirt.io/created-by", "--ignore-daemonsets=true", "--force", "--timeout=180s")
+						Expect(err).ToNot(HaveOccurred(), "Draining node")
+					} else {
+						_, _, err = tests.RunCommandWithNS("", k8sClient, "drain", node, "--delete-local-data", "--pod-selector=kubevirt.io/created-by", "--ignore-daemonsets=true", "--force", "--timeout=180s")
+						Expect(err).ToNot(HaveOccurred(), "Draining node")
+					}
+
+					By("Verify expected vmis migrated after node drain completes")
+					// verify migrated where expected to migrate.
+					Eventually(func() error {
+						vmi, err := virtClient.VirtualMachineInstance(vmi_evict1.Namespace).Get(vmi_evict1.Name, &metav1.GetOptions{})
+						if err != nil {
+							return err
+						} else if vmi.Status.NodeName == node {
+							return fmt.Errorf("VMI still exist on the same node")
+						} else if vmi.Status.MigrationState == nil || vmi.Status.MigrationState.SourceNode != node {
+							return fmt.Errorf("VMI did not migrate yet")
+						}
+
+						vmi, err = virtClient.VirtualMachineInstance(vmi_evict2.Namespace).Get(vmi_evict2.Name, &metav1.GetOptions{})
+						if err != nil {
+							return err
+						} else if vmi.Status.NodeName == node {
+							return fmt.Errorf("VMI still exist on the same node")
+						} else if vmi.Status.MigrationState == nil || vmi.Status.MigrationState.SourceNode != node {
+							return fmt.Errorf("VMI did not migrate yet")
+						}
+
+						// This VMI should be terminated
+						vmi, err = virtClient.VirtualMachineInstance(vmi_noevict.Namespace).Get(vmi_noevict.Name, &metav1.GetOptions{})
+						if err != nil {
+							return err
+						} else if vmi.Status.NodeName == node {
+							return fmt.Errorf("VMI still exist on the same node")
+						}
+						// this VM should not have migrated. Instead it should have been shutdown and started on the other node.
+						Expect(vmi.Status.MigrationState).To(BeNil())
+						return nil
+					}, 180*time.Second, 1*time.Second).ShouldNot(HaveOccurred())
+
+				}, 600)
 			})
-
 		})
 		Context("with multiple VMIs with eviction policies set", func() {
 
 			It("should not migrate more than two VMIs at the same time from a node", func() {
 				var vmis []*v1.VirtualMachineInstance
 				for i := 0; i < 4; i++ {
-					vmi := vmiWithEvictionStrategy()
+					vmi := cirrosVMIWithEvictionStrategy()
 					vmi.Spec.NodeSelector = map[string]string{"tests.kubevirt.io": "target"}
 					vmis = append(vmis, vmi)
 				}
@@ -1083,7 +1550,15 @@ var _ = Describe("Migrations", func() {
 	})
 })
 
-func vmiWithEvictionStrategy() *v1.VirtualMachineInstance {
+func fedoraVMIWithEvictionStrategy() *v1.VirtualMachineInstance {
+	vmi := tests.NewRandomFedoraVMIWitGuestAgent()
+	strategy := v1.EvictionStrategyLiveMigrate
+	vmi.Spec.EvictionStrategy = &strategy
+	vmi.Spec.Domain.Resources.Requests[k8sv1.ResourceMemory] = resource.MustParse("1Gi")
+	return vmi
+}
+
+func cirrosVMIWithEvictionStrategy() *v1.VirtualMachineInstance {
 	strategy := v1.EvictionStrategyLiveMigrate
 	vmi := tests.NewRandomVMIWithEphemeralDiskAndUserdata(tests.ContainerDiskFor(tests.ContainerDiskCirros), "#!/bin/bash\necho 'hello'\n")
 	vmi.Spec.EvictionStrategy = &strategy

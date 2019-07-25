@@ -20,8 +20,8 @@
 package tests_test
 
 import (
-	"flag"
 	"fmt"
+	"io/ioutil"
 	"os"
 	"time"
 
@@ -33,15 +33,15 @@ import (
 
 	cdiv1 "kubevirt.io/containerized-data-importer/pkg/apis/core/v1alpha1"
 
-	v1 "kubevirt.io/kubevirt/pkg/api/v1"
-	"kubevirt.io/kubevirt/pkg/kubecli"
+	v1 "kubevirt.io/client-go/api/v1"
+	"kubevirt.io/client-go/kubecli"
 	"kubevirt.io/kubevirt/tests"
 )
 
 const InvalidDataVolumeUrl = "http://127.0.0.1/invalid"
 
 var _ = Describe("DataVolume Integration", func() {
-	flag.Parse()
+	tests.FlagParse()
 
 	virtClient, err := kubecli.GetKubevirtClient()
 	tests.PanicOnError(err)
@@ -52,9 +52,6 @@ var _ = Describe("DataVolume Integration", func() {
 			Skip("Skip DataVolume tests when CDI is not present")
 		}
 
-	})
-
-	AfterEach(func() {
 	})
 
 	runVMIAndExpectLaunch := func(vmi *v1.VirtualMachineInstance, timeout int) *v1.VirtualMachineInstance {
@@ -140,6 +137,7 @@ var _ = Describe("DataVolume Integration", func() {
 	Describe("[rfe_id:896][crit:high][vendor:cnv-qe@redhat.com][level:system] with oc/kubectl", func() {
 		var vm *v1.VirtualMachine
 		var err error
+		var workDir string
 		var vmJson string
 		var dataVolumeName string
 		var pvcName string
@@ -155,7 +153,9 @@ var _ = Describe("DataVolume Integration", func() {
 			dataVolumeName = vm.Spec.DataVolumeTemplates[0].Name
 			pvcName = dataVolumeName
 
-			vmJson, err = tests.GenerateVMJson(vm)
+			workDir, err := ioutil.TempDir("", tests.TempDirPrefix+"-")
+			Expect(err).ToNot(HaveOccurred())
+			vmJson, err = tests.GenerateVMJson(vm, workDir)
 			Expect(err).ToNot(HaveOccurred())
 		})
 
@@ -295,10 +295,10 @@ var _ = Describe("DataVolume Integration", func() {
 		}
 
 		AfterEach(func() {
-			if vmJson != "" {
-				err = os.Remove(vmJson)
+			if workDir != "" {
+				err = os.RemoveAll(workDir)
 				Expect(err).ToNot(HaveOccurred())
-				vmJson = ""
+				workDir = ""
 			}
 
 			deleteIfExistsVM(vm.Name, vm.Namespace)

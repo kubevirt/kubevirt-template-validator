@@ -1,53 +1,38 @@
 package tests_test
 
 import (
-	"flag"
-	"fmt"
 	"strconv"
 	"time"
 
-	expect "github.com/google/goexpect"
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
 	k8sv1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	k8smetav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	v1 "kubevirt.io/kubevirt/pkg/api/v1"
-	"kubevirt.io/kubevirt/pkg/kubecli"
+	v1 "kubevirt.io/client-go/api/v1"
+	"kubevirt.io/client-go/kubecli"
 	"kubevirt.io/kubevirt/pkg/virtctl/expose"
 	"kubevirt.io/kubevirt/tests"
 )
 
-func newLabeledVM(label string, virtClient kubecli.KubevirtClient) (vmi *v1.VirtualMachineInstance) {
-	ports := []v1.Port{{Name: "http", Port: 80}, {Name: "udp", Port: 82, Protocol: "UDP"}}
-	vmi = tests.NewRandomVMIWithBridgeInterfaceEphemeralDiskAndUserdata(tests.ContainerDiskFor(tests.ContainerDiskCirros), "#!/bin/bash\necho 'hello'\n", ports)
+func newLabeledVMI(label string, virtClient kubecli.KubevirtClient, createVMI bool) (vmi *v1.VirtualMachineInstance) {
+	ports := []v1.Port{{Name: "http", Port: 80},
+		{Name: "test-port-tcp", Port: 1500, Protocol: "TCP"},
+		{Name: "udp", Port: 82, Protocol: "UDP"},
+		{Name: "test-port-udp", Port: 1500, Protocol: "UDP"}}
+	vmi = tests.NewRandomVMIWithMasqueradeInterfaceEphemeralDiskAndUserdata(tests.ContainerDiskFor(tests.ContainerDiskCirros), "#!/bin/bash\necho 'hello'\n", ports)
 	vmi.Labels = map[string]string{"expose": label}
-	vmi, err := virtClient.VirtualMachineInstance(tests.NamespaceTestDefault).Create(vmi)
-	Expect(err).ToNot(HaveOccurred())
-	tests.WaitForSuccessfulVMIStartIgnoreWarnings(vmi)
-	vmi, err = virtClient.VirtualMachineInstance(tests.NamespaceTestDefault).Get(vmi.ObjectMeta.Name, &k8smetav1.GetOptions{})
-	Expect(err).ToNot(HaveOccurred())
-	return
-}
 
-func generateHelloWorldServer(vmi *v1.VirtualMachineInstance, virtClient kubecli.KubevirtClient, testPort int, protocol string) {
-	expecter, err := tests.LoggedInCirrosExpecter(vmi)
-	Expect(err).ToNot(HaveOccurred())
-	defer expecter.Close()
-
-	serverCommand := fmt.Sprintf("screen -d -m sudo nc -klp %d -e echo -e 'Hello World!'\n", testPort)
-	if protocol == "udp" {
-		// nc has to be in a while loop in case of UDP, since it exists after one message
-		serverCommand = fmt.Sprintf("screen -d -m sh -c \"while true\n do nc -uklp %d -e echo -e 'Hello UDP World!'\ndone\n\"\n", testPort)
+	var err error
+	if createVMI {
+		vmi, err = virtClient.VirtualMachineInstance(tests.NamespaceTestDefault).Create(vmi)
+		Expect(err).ToNot(HaveOccurred())
+		tests.WaitForSuccessfulVMIStartIgnoreWarnings(vmi)
+		vmi, err = virtClient.VirtualMachineInstance(tests.NamespaceTestDefault).Get(vmi.ObjectMeta.Name, &k8smetav1.GetOptions{})
+		Expect(err).ToNot(HaveOccurred())
 	}
-	_, err = expecter.ExpectBatch([]expect.Batcher{
-		&expect.BSnd{S: serverCommand},
-		&expect.BExp{R: "\\$ "},
-		&expect.BSnd{S: "echo $?\n"},
-		&expect.BExp{R: "0"},
-	}, 60*time.Second)
-	Expect(err).ToNot(HaveOccurred())
+	return
 }
 
 func waitForJobToCompleteWithStatus(virtClient *kubecli.KubevirtClient, jobPod *k8sv1.Pod, expectedResult string, timeoutSec int) {
@@ -66,7 +51,7 @@ func waitForJobToCompleteWithStatus(virtClient *kubecli.KubevirtClient, jobPod *
 
 var _ = Describe("[rfe_id:253][crit:medium][vendor:cnv-qe@redhat.com][level:component]Expose", func() {
 
-	flag.Parse()
+	tests.FlagParse()
 
 	virtClient, err := kubecli.GetKubevirtClient()
 	tests.PanicOnError(err)
@@ -75,8 +60,9 @@ var _ = Describe("[rfe_id:253][crit:medium][vendor:cnv-qe@redhat.com][level:comp
 	Context("Expose service on a VM", func() {
 		var tcpVM *v1.VirtualMachineInstance
 		tests.BeforeAll(func() {
-			tcpVM = newLabeledVM("vm", virtClient)
-			generateHelloWorldServer(tcpVM, virtClient, testPort, "tcp")
+			tests.BeforeTestCleanup()
+			tcpVM = newLabeledVMI("vm", virtClient, true)
+			tests.GenerateHelloWorldServer(tcpVM, testPort, "tcp")
 		})
 
 		Context("Expose ClusterIP service", func() {
@@ -150,9 +136,11 @@ var _ = Describe("[rfe_id:253][crit:medium][vendor:cnv-qe@redhat.com][level:comp
 
 				Expect(len(endpoints.Subsets)).To(Equal(1))
 				endpoint := endpoints.Subsets[0]
-				Expect(len(endpoint.Ports)).To(Equal(2))
+				Expect(len(endpoint.Ports)).To(Equal(4))
 				Expect(endpoint.Ports).To(ContainElement(k8sv1.EndpointPort{Name: "port-1", Port: 80, Protocol: "TCP"}))
-				Expect(endpoint.Ports).To(ContainElement(k8sv1.EndpointPort{Name: "port-2", Port: 82, Protocol: "UDP"}))
+				Expect(endpoint.Ports).To(ContainElement(k8sv1.EndpointPort{Name: "port-2", Port: 1500, Protocol: "TCP"}))
+				Expect(endpoint.Ports).To(ContainElement(k8sv1.EndpointPort{Name: "port-3", Port: 82, Protocol: "UDP"}))
+				Expect(endpoint.Ports).To(ContainElement(k8sv1.EndpointPort{Name: "port-4", Port: 1500, Protocol: "UDP"}))
 			})
 		})
 
@@ -197,8 +185,9 @@ var _ = Describe("[rfe_id:253][crit:medium][vendor:cnv-qe@redhat.com][level:comp
 	Context("Expose UDP service on a VMI", func() {
 		var udpVM *v1.VirtualMachineInstance
 		tests.BeforeAll(func() {
-			udpVM = newLabeledVM("udp-vm", virtClient)
-			generateHelloWorldServer(udpVM, virtClient, testPort, "udp")
+			tests.BeforeTestCleanup()
+			udpVM = newLabeledVMI("udp-vm", virtClient, true)
+			tests.GenerateHelloWorldServer(udpVM, testPort, "udp")
 		})
 
 		Context("Expose ClusterIP UDP service", func() {
@@ -275,9 +264,10 @@ var _ = Describe("[rfe_id:253][crit:medium][vendor:cnv-qe@redhat.com][level:comp
 	Context("Expose service on a VMI replica set", func() {
 		var vmrs *v1.VirtualMachineInstanceReplicaSet
 		tests.BeforeAll(func() {
+			tests.BeforeTestCleanup()
 			By("Creating a VMRS object with 2 replicas")
 			const numberOfVMs = 2
-			template := tests.NewRandomVMIWithEphemeralDiskAndUserdata(tests.ContainerDiskFor(tests.ContainerDiskCirros), "#!/bin/bash\necho 'hello'\n")
+			template := newLabeledVMI("vmirs", virtClient, false)
 			vmrs = tests.NewRandomReplicaSetFromVMI(template, int32(numberOfVMs))
 			vmrs.Labels = map[string]string{"expose": "vmirs"}
 
@@ -300,7 +290,7 @@ var _ = Describe("[rfe_id:253][crit:medium][vendor:cnv-qe@redhat.com][level:comp
 			Expect(err).ToNot(HaveOccurred())
 			for _, vm := range vms.Items {
 				if vm.OwnerReferences != nil {
-					generateHelloWorldServer(&vm, virtClient, testPort, "tcp")
+					tests.GenerateHelloWorldServer(&vm, testPort, "tcp")
 				}
 			}
 		})
@@ -338,9 +328,9 @@ var _ = Describe("[rfe_id:253][crit:medium][vendor:cnv-qe@redhat.com][level:comp
 		var vm *v1.VirtualMachine
 
 		tests.BeforeAll(func() {
+			tests.BeforeTestCleanup()
 			By("Creating an VM object")
-			template := tests.NewRandomVMIWithEphemeralDiskAndUserdata(tests.ContainerDiskFor(tests.ContainerDiskCirros), "#!/bin/bash\necho 'hello'\n")
-			template.Labels = map[string]string{"expose": "vm"}
+			template := newLabeledVMI("vm", virtClient, false)
 			vm = tests.NewRandomVirtualMachine(template, false)
 
 			By("Creating the VM")
@@ -373,7 +363,7 @@ var _ = Describe("[rfe_id:253][crit:medium][vendor:cnv-qe@redhat.com][level:comp
 				return vmi.Status.Phase == v1.Running
 			}, 120*time.Second, 1*time.Second).Should(BeTrue())
 
-			generateHelloWorldServer(vmi, virtClient, testPort, "tcp")
+			tests.GenerateHelloWorldServer(vmi, testPort, "tcp")
 		})
 
 		Context("Expose a VM as a ClusterIP service.", func() {
@@ -442,7 +432,7 @@ var _ = Describe("[rfe_id:253][crit:medium][vendor:cnv-qe@redhat.com][level:comp
 				}, 120*time.Second, 1*time.Second).Should(BeTrue())
 
 				By("Creating a TCP server on the VM.")
-				generateHelloWorldServer(vmi, virtClient, testPort, "tcp")
+				tests.GenerateHelloWorldServer(vmi, testPort, "tcp")
 
 				By("Repeating the sequence as prior to restarting the VM: Connect to exposed ClusterIP service.")
 				By("Starting a pod which tries to reach the VMI via ClusterIP.")

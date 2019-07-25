@@ -41,10 +41,10 @@ import (
 
 	fakenetworkclient "github.com/k8snetworkplumbingwg/network-attachment-definition-client/pkg/client/clientset/versioned/fake"
 
+	v1 "kubevirt.io/client-go/api/v1"
+	"kubevirt.io/client-go/kubecli"
+	"kubevirt.io/client-go/log"
 	cdiv1 "kubevirt.io/containerized-data-importer/pkg/apis/core/v1alpha1"
-	v1 "kubevirt.io/kubevirt/pkg/api/v1"
-	"kubevirt.io/kubevirt/pkg/kubecli"
-	"kubevirt.io/kubevirt/pkg/log"
 	"kubevirt.io/kubevirt/pkg/testutils"
 	"kubevirt.io/kubevirt/pkg/virt-controller/services"
 )
@@ -66,7 +66,6 @@ var _ = Describe("VirtualMachineInstance watcher", func() {
 	var virtClient *kubecli.MockKubevirtClient
 	var kubeClient *fake.Clientset
 	var networkClient *fakenetworkclient.Clientset
-	var configMapInformer cache.SharedIndexInformer
 	var pvcInformer cache.SharedIndexInformer
 
 	var dataVolumeSource *framework.FakeControllerSource
@@ -162,15 +161,14 @@ var _ = Describe("VirtualMachineInstance watcher", func() {
 		dataVolumeInformer, dataVolumeSource = testutils.NewFakeInformerFor(&cdiv1.DataVolume{})
 		recorder = record.NewFakeRecorder(100)
 
-		configMapInformer, _ = testutils.NewFakeInformerFor(&k8sv1.ConfigMap{})
+		config, _ := testutils.NewFakeClusterConfig(&k8sv1.ConfigMap{})
 		pvcInformer, _ = testutils.NewFakeInformerFor(&k8sv1.PersistentVolumeClaim{})
 		controller = NewVMIController(
-			services.NewTemplateService("a", "b", "c", "d", configMapInformer.GetStore(), pvcInformer.GetStore(), virtClient),
+			services.NewTemplateService("a", "b", "c", "d", pvcInformer.GetStore(), virtClient, config),
 			vmiInformer,
 			podInformer,
 			recorder,
 			virtClient,
-			configMapInformer,
 			dataVolumeInformer)
 		// Wrap our workqueue to have a way to detect when we are done processing updates
 		mockQueue = testutils.NewMockWorkQueue(controller.Queue)
@@ -714,6 +712,21 @@ var _ = Describe("VirtualMachineInstance watcher", func() {
 			podFeeder.Add(pod)
 
 			shouldExpectVirtualMachineHandover(vmi)
+
+			controller.Execute()
+		})
+		It("should update the virtual machine QOS class if the pod finally has a QOS class assigned", func() {
+			vmi := NewPendingVirtualMachine("testvmi")
+			vmi.Status.Phase = v1.Scheduling
+			pod := NewPodForVirtualMachine(vmi, k8sv1.PodRunning)
+			pod.Status.QOSClass = k8sv1.PodQOSGuaranteed
+
+			addVirtualMachine(vmi)
+			podFeeder.Add(pod)
+
+			vmiInterface.EXPECT().Update(gomock.Any()).Do(func(arg interface{}) {
+				Expect(*arg.(*v1.VirtualMachineInstance).Status.QOSClass).To(Equal(k8sv1.PodQOSGuaranteed))
+			}).Return(vmi, nil)
 
 			controller.Execute()
 		})

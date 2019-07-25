@@ -20,7 +20,6 @@
 package tests_test
 
 import (
-	"flag"
 	"fmt"
 	"time"
 
@@ -29,14 +28,14 @@ import (
 	k8sv1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	v1 "kubevirt.io/kubevirt/pkg/api/v1"
-	"kubevirt.io/kubevirt/pkg/kubecli"
+	v1 "kubevirt.io/client-go/api/v1"
+	"kubevirt.io/client-go/kubecli"
 	"kubevirt.io/kubevirt/tests"
 )
 
 var _ = Describe("Subresource Api", func() {
 
-	flag.Parse()
+	tests.FlagParse()
 
 	virtCli, err := kubecli.GetKubevirtClient()
 	tests.PanicOnError(err)
@@ -78,9 +77,9 @@ var _ = Describe("Subresource Api", func() {
 		})
 	})
 
-	Describe("VirtualMachine subresource", func() {
+	Describe("[rfe_id:1177][crit:medium][vendor:cnv-qe@redhat.com][level:component] VirtualMachine subresource", func() {
 		Context("with a restart endpoint", func() {
-			It("should restart a VM", func() {
+			It("[test_id:1304] should restart a VM", func() {
 				vm := tests.NewRandomVirtualMachine(tests.NewRandomVMI(), false)
 				vm, err := virtCli.VirtualMachine(tests.NamespaceTestDefault).Create(vm)
 				Expect(err).NotTo(HaveOccurred())
@@ -102,7 +101,7 @@ var _ = Describe("Subresource Api", func() {
 				}, 90*time.Second, 1*time.Second).Should(Equal(v1.Running))
 			})
 
-			It("should return an error when VM is not running", func() {
+			It("[test_id:1305][posneg:negative] should return an error when VM is not running", func() {
 				vm := tests.NewRandomVirtualMachine(tests.NewRandomVMI(), false)
 				vm, err := virtCli.VirtualMachine(tests.NamespaceTestDefault).Create(vm)
 				Expect(err).NotTo(HaveOccurred())
@@ -111,7 +110,7 @@ var _ = Describe("Subresource Api", func() {
 				Expect(err).To(HaveOccurred())
 			})
 
-			It("should return an error when VM has not been found but VMI is running", func() {
+			It("[test_id:2265][posneg:negative] should return an error when VM has not been found but VMI is running", func() {
 				vmi := tests.NewRandomVMI()
 				tests.RunVMIAndExpectLaunch(vmi, 60)
 
@@ -121,7 +120,7 @@ var _ = Describe("Subresource Api", func() {
 		})
 
 		Context("With manual RunStrategy", func() {
-			It("Should restart when VM is not running", func() {
+			It("Should not restart when VM is not running", func() {
 				vm := tests.NewRandomVirtualMachine(tests.NewRandomVMI(), false)
 				vm.Spec.RunStrategy = &manual
 				vm.Spec.Running = nil
@@ -130,18 +129,9 @@ var _ = Describe("Subresource Api", func() {
 				vm, err := virtCli.VirtualMachine(tests.NamespaceTestDefault).Create(vm)
 				Expect(err).ToNot(HaveOccurred())
 
-				By("Starting VM via Restart subresource")
+				By("Trying to start VM via Restart subresource")
 				err = virtCli.VirtualMachine(tests.NamespaceTestDefault).Restart(vm.Name)
-				Expect(err).ToNot(HaveOccurred())
-
-				By("Waiting for VMI to start")
-				Eventually(func() v1.VirtualMachineInstancePhase {
-					newVMI, err := virtCli.VirtualMachineInstance(tests.NamespaceTestDefault).Get(vm.Name, &metav1.GetOptions{})
-					if err != nil {
-						return v1.VmPhaseUnset
-					}
-					return newVMI.Status.Phase
-				}, 90*time.Second, 1*time.Second).Should(Equal(v1.Running))
+				Expect(err).To(HaveOccurred())
 			})
 
 			It("Should restart when VM is running", func() {
@@ -153,8 +143,8 @@ var _ = Describe("Subresource Api", func() {
 				vm, err := virtCli.VirtualMachine(tests.NamespaceTestDefault).Create(vm)
 				Expect(err).ToNot(HaveOccurred())
 
-				By("Starting VM via Restart subresource")
-				err = virtCli.VirtualMachine(tests.NamespaceTestDefault).Restart(vm.Name)
+				By("Starting VM via Start subresource")
+				err = virtCli.VirtualMachine(tests.NamespaceTestDefault).Start(vm.Name)
 				Expect(err).ToNot(HaveOccurred())
 
 				By("Waiting for VMI to start")
@@ -247,7 +237,7 @@ func testClientJob(virtCli kubecli.KubevirtClient, withServiceAccount bool, reso
 			Containers: []k8sv1.Container{
 				{
 					Name:    name,
-					Image:   fmt.Sprintf("%s/subresource-access-test:%s", tests.KubeVirtRepoPrefix, tests.KubeVirtVersionTag),
+					Image:   fmt.Sprintf("%s/subresource-access-test:%s", tests.KubeVirtUtilityRepoPrefix, tests.KubeVirtUtilityVersionTag),
 					Command: []string{"/subresource-access-test", resource},
 				},
 			},

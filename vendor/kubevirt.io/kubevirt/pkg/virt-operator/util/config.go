@@ -23,16 +23,40 @@ import (
 	"os"
 	"regexp"
 	"strings"
+
+	k8sv1 "k8s.io/api/core/v1"
+
+	kvutil "kubevirt.io/kubevirt/pkg/util"
 )
 
 const (
 	// Name of env var containing the operator's image name
-	OperatorImageEnvName = "OPERATOR_IMAGE"
+	OperatorImageEnvName   = "OPERATOR_IMAGE"
+	TargetInstallNamespace = "TARGET_INSTALL_NAMESPACE"
+	TargetImagePullPolicy  = "TARGET_IMAGE_PULL_POLICY"
 )
 
 type KubeVirtDeploymentConfig struct {
 	ImageRegistry string
 	ImageTag      string
+}
+
+func GetTargetImagePullPolicy() k8sv1.PullPolicy {
+	pullPolicy := os.Getenv(TargetImagePullPolicy)
+	if pullPolicy == "" {
+		return k8sv1.PullIfNotPresent
+	}
+
+	return k8sv1.PullPolicy(pullPolicy)
+}
+
+func GetTargetInstallNamespace() (string, error) {
+	ns := os.Getenv(TargetInstallNamespace)
+	if ns == "" {
+		return kvutil.GetNamespace()
+	}
+
+	return ns, nil
 }
 
 func GetConfig() KubeVirtDeploymentConfig {

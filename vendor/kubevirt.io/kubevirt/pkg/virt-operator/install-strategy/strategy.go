@@ -26,7 +26,6 @@ import (
 	"strings"
 
 	"github.com/ghodss/yaml"
-
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
@@ -34,10 +33,9 @@ import (
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	v1 "kubevirt.io/kubevirt/pkg/api/v1"
-	"kubevirt.io/kubevirt/pkg/kubecli"
-	"kubevirt.io/kubevirt/pkg/log"
-	kvutil "kubevirt.io/kubevirt/pkg/util"
+	v1 "kubevirt.io/client-go/api/v1"
+	"kubevirt.io/client-go/kubecli"
+	"kubevirt.io/client-go/log"
 	"kubevirt.io/kubevirt/pkg/virt-operator/creation/components"
 	"kubevirt.io/kubevirt/pkg/virt-operator/creation/rbac"
 	"kubevirt.io/kubevirt/pkg/virt-operator/util"
@@ -77,13 +75,13 @@ type InstallStrategy struct {
 	customSCCPrivileges []*customSCCPrivilegedAccounts
 }
 
-func NewInstallStrategyConfigMap(namespace string, imageTag string, imageRegistry string) (*corev1.ConfigMap, error) {
+func NewInstallStrategyConfigMap(namespace string, imageTag string, imageRegistry string, pullPolicy corev1.PullPolicy) (*corev1.ConfigMap, error) {
 
 	strategy, err := GenerateCurrentInstallStrategy(
 		namespace,
 		imageTag,
 		imageRegistry,
-		corev1.PullIfNotPresent,
+		pullPolicy,
 		"2")
 	if err != nil {
 		return nil, err
@@ -115,12 +113,13 @@ func DumpInstallStrategyToConfigMap(clientset kubecli.KubevirtClient) error {
 	imageTag := conf.ImageTag
 	imageRegistry := conf.ImageRegistry
 
-	namespace, err := kvutil.GetNamespace()
+	namespace, err := util.GetTargetInstallNamespace()
 	if err != nil {
 		return err
 	}
+	pullPolicy := util.GetTargetImagePullPolicy()
 
-	configMap, err := NewInstallStrategyConfigMap(namespace, imageTag, imageRegistry)
+	configMap, err := NewInstallStrategyConfigMap(namespace, imageTag, imageRegistry, pullPolicy)
 	if err != nil {
 		return err
 	}
@@ -289,8 +288,9 @@ func LoadInstallStrategyFromCache(stores util.Stores, namespace string, imageTag
 		config, ok := obj.(*corev1.ConfigMap)
 		if !ok {
 			continue
-		}
-		if config.ObjectMeta.Annotations == nil {
+		} else if config.ObjectMeta.Annotations == nil {
+			continue
+		} else if config.ObjectMeta.Namespace != namespace {
 			continue
 		}
 

@@ -32,10 +32,10 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/client-go/tools/cache"
 
-	v1 "kubevirt.io/kubevirt/pkg/api/v1"
+	v1 "kubevirt.io/client-go/api/v1"
+	"kubevirt.io/client-go/kubecli"
+	"kubevirt.io/client-go/log"
 	"kubevirt.io/kubevirt/pkg/controller"
-	"kubevirt.io/kubevirt/pkg/kubecli"
-	"kubevirt.io/kubevirt/pkg/log"
 	"kubevirt.io/kubevirt/pkg/util"
 	"kubevirt.io/kubevirt/pkg/util/openapi"
 	"kubevirt.io/kubevirt/pkg/virt-api/rest"
@@ -80,21 +80,25 @@ type Informers struct {
 	VMIPresetInformer       cache.SharedIndexInformer
 	NamespaceLimitsInformer cache.SharedIndexInformer
 	VMIInformer             cache.SharedIndexInformer
-	ConfigMapInformer       cache.SharedIndexInformer
 }
 
+// XXX fix this, this is a huge mess. Move informers to Admitter and Mutator structs.
+var mutex sync.Mutex
+
 func GetInformers() *Informers {
-	once.Do(func() {
+	mutex.Lock()
+	defer mutex.Unlock()
+	if webhookInformers == nil {
 		webhookInformers = newInformers()
-	})
+	}
 	return webhookInformers
 }
 
 // SetInformers created for unittest usage only
 func SetInformers(informers *Informers) {
-	once.Do(func() {
-		webhookInformers = informers
-	})
+	mutex.Lock()
+	defer mutex.Unlock()
+	webhookInformers = informers
 }
 
 func newInformers() *Informers {
@@ -111,7 +115,6 @@ func newInformers() *Informers {
 		VMIInformer:             kubeInformerFactory.VMI(),
 		VMIPresetInformer:       kubeInformerFactory.VirtualMachinePreset(),
 		NamespaceLimitsInformer: kubeInformerFactory.LimitRanges(),
-		ConfigMapInformer:       kubeInformerFactory.ConfigMap(),
 	}
 }
 

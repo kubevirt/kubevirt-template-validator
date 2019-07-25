@@ -20,19 +20,19 @@
 package tests_test
 
 import (
-	"flag"
-
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
+	k8sv1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	v1 "kubevirt.io/kubevirt/pkg/api/v1"
-	"kubevirt.io/kubevirt/pkg/kubecli"
+	v1 "kubevirt.io/client-go/api/v1"
+	"kubevirt.io/client-go/kubecli"
 	"kubevirt.io/kubevirt/tests"
 )
 
 var _ = Describe("VMIDefaults", func() {
-	flag.Parse()
+	tests.FlagParse()
 
 	virtClient, err := kubecli.GetKubevirtClient()
 	tests.PanicOnError(err)
@@ -48,6 +48,11 @@ var _ = Describe("VMIDefaults", func() {
 				Devices: v1.Devices{
 					Disks: []v1.Disk{
 						{Name: "testdisk"},
+					},
+				},
+				Resources: v1.ResourceRequirements{
+					Requests: k8sv1.ResourceList{
+						k8sv1.ResourceMemory: resource.MustParse("8192Ki"),
 					},
 				},
 			},

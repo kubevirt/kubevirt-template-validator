@@ -23,7 +23,7 @@ import (
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	k6tv1 "kubevirt.io/kubevirt/pkg/api/v1"
+	k6tv1 "kubevirt.io/client-go/api/v1"
 
 	"github.com/fromanirh/kubevirt-template-validator/pkg/validation"
 

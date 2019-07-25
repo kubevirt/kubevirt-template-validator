@@ -33,11 +33,11 @@ import (
 	"k8s.io/client-go/tools/record"
 	"k8s.io/client-go/util/workqueue"
 
+	virtv1 "kubevirt.io/client-go/api/v1"
+	"kubevirt.io/client-go/kubecli"
+	"kubevirt.io/client-go/log"
 	cdiv1 "kubevirt.io/containerized-data-importer/pkg/apis/core/v1alpha1"
-	virtv1 "kubevirt.io/kubevirt/pkg/api/v1"
 	"kubevirt.io/kubevirt/pkg/controller"
-	"kubevirt.io/kubevirt/pkg/kubecli"
-	"kubevirt.io/kubevirt/pkg/log"
 	"kubevirt.io/kubevirt/pkg/virt-controller/services"
 )
 
@@ -101,7 +101,6 @@ func NewVMIController(templateService services.TemplateService,
 	podInformer cache.SharedIndexInformer,
 	recorder record.EventRecorder,
 	clientset kubecli.KubevirtClient,
-	configMapInformer cache.SharedIndexInformer,
 	dataVolumeInformer cache.SharedIndexInformer) *VMIController {
 
 	c := &VMIController{
@@ -112,7 +111,6 @@ func NewVMIController(templateService services.TemplateService,
 		recorder:           recorder,
 		clientset:          clientset,
 		podExpectations:    controller.NewUIDTrackingControllerExpectations(controller.NewControllerExpectations()),
-		configMapInformer:  configMapInformer,
 		dataVolumeInformer: dataVolumeInformer,
 	}
 
@@ -163,7 +161,6 @@ type VMIController struct {
 	podInformer        cache.SharedIndexInformer
 	recorder           record.EventRecorder
 	podExpectations    *controller.UIDTrackingControllerExpectations
-	configMapInformer  cache.SharedIndexInformer
 	dataVolumeInformer cache.SharedIndexInformer
 }
 
@@ -173,7 +170,7 @@ func (c *VMIController) Run(threadiness int, stopCh <-chan struct{}) {
 	log.Log.Info("Starting vmi controller.")
 
 	// Wait for cache sync before we start the pod controller
-	cache.WaitForCacheSync(stopCh, c.vmiInformer.HasSynced, c.podInformer.HasSynced, c.configMapInformer.HasSynced, c.dataVolumeInformer.HasSynced)
+	cache.WaitForCacheSync(stopCh, c.vmiInformer.HasSynced, c.podInformer.HasSynced, c.dataVolumeInformer.HasSynced)
 
 	// Start the actual work
 	for i := 0; i < threadiness; i++ {
@@ -297,6 +294,13 @@ func (c *VMIController) updateStatus(vmi *virtv1.VirtualMachineInstance, pod *k8
 	case vmi.IsScheduling():
 		switch {
 		case podExists:
+			// ensure that the QOS class on the VMI matches to Pods QOS class
+			if pod.Status.QOSClass == "" {
+				vmiCopy.Status.QOSClass = nil
+			} else {
+				vmiCopy.Status.QOSClass = &pod.Status.QOSClass
+			}
+
 			// Add PodScheduled False condition to the VM
 			if cond := conditionManager.GetPodConditionWithStatus(pod, k8sv1.PodScheduled, k8sv1.ConditionFalse); cond != nil {
 				conditionManager.AddPodCondition(vmiCopy, cond)

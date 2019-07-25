@@ -20,6 +20,7 @@ import (
 	"context"
 	"os"
 	"reflect"
+	"strings"
 	"time"
 
 	. "github.com/onsi/ginkgo"
@@ -67,16 +68,17 @@ type args struct {
 
 var (
 	envVars = map[string]string{
-		"DOCKER_REPO":         "kubevirt",
-		"DOCKER_TAG":          version,
-		"CONTROLLER_IMAGE":    "cdi-controller",
-		"IMPORTER_IMAGE":      "cdi-importer",
-		"CLONER_IMAGE":        "cdi-cloner",
-		"UPLOAD_PROXY_IMAGE":  "cdi-uploadproxy",
-		"UPLOAD_SERVER_IMAGE": "cdi-uploadserver",
-		"APISERVER_IMAGE":     "cdi-apiserver",
-		"VERBOSITY":           "1",
-		"PULL_POLICY":         "Always",
+		"DOCKER_REPO":              "kubevirt",
+		"DOCKER_TAG":               version,
+		"DEPLOY_CLUSTER_RESOURCES": "true",
+		"CONTROLLER_IMAGE":         "cdi-controller",
+		"IMPORTER_IMAGE":           "cdi-importer",
+		"CLONER_IMAGE":             "cdi-cloner",
+		"UPLOAD_PROXY_IMAGE":       "cdi-uploadproxy",
+		"UPLOAD_SERVER_IMAGE":      "cdi-uploadserver",
+		"APISERVER_IMAGE":          "cdi-apiserver",
+		"VERBOSITY":                "1",
+		"PULL_POLICY":              "Always",
 	}
 )
 
@@ -417,7 +419,80 @@ var _ = Describe("Controller", func() {
 			})
 		})
 	})
+
+	DescribeTable("should allow registry override", func(o cdiOverride) {
+		args := createArgs()
+
+		o.Set(args.cdi)
+		err := args.client.Update(context.TODO(), args.cdi)
+		Expect(err).ToNot(HaveOccurred())
+
+		doReconcile(args)
+
+		resources, err := getAllResources(args.reconciler)
+		Expect(err).ToNot(HaveOccurred())
+
+		for _, r := range resources {
+			d, ok := r.(*appsv1.Deployment)
+			if !ok {
+				continue
+			}
+
+			d, err = getDeployment(args.client, d)
+			Expect(err).ToNot(HaveOccurred())
+
+			o.Check(d)
+		}
+	},
+		Entry("Registry override", &registryOverride{"quay.io/kybevirt"}),
+		Entry("Tag override", &registryOverride{"v1.100.0"}),
+		Entry("Pull override", &pullOverride{corev1.PullNever}),
+	)
 })
+
+type cdiOverride interface {
+	Set(cr *cdiviaplha1.CDI)
+	Check(d *appsv1.Deployment)
+}
+
+type registryOverride struct {
+	value string
+}
+
+func (o *registryOverride) Set(cr *cdiviaplha1.CDI) {
+	cr.Spec.ImageRegistry = o.value
+}
+
+func (o *registryOverride) Check(d *appsv1.Deployment) {
+	image := d.Spec.Template.Spec.Containers[0].Image
+	Expect(strings.HasPrefix(image, o.value)).To(BeTrue())
+}
+
+type tagOverride struct {
+	value string
+}
+
+func (o *tagOverride) Set(cr *cdiviaplha1.CDI) {
+	cr.Spec.ImageTag = o.value
+}
+
+func (o *tagOverride) Check(d *appsv1.Deployment) {
+	image := d.Spec.Template.Spec.Containers[0].Image
+	Expect(strings.HasSuffix(image, ":"+o.value)).To(BeTrue())
+}
+
+type pullOverride struct {
+	value corev1.PullPolicy
+}
+
+func (o *pullOverride) Set(cr *cdiviaplha1.CDI) {
+	cr.Spec.ImagePullPolicy = o.value
+}
+
+func (o *pullOverride) Check(d *appsv1.Deployment) {
+	pp := d.Spec.Template.Spec.Containers[0].ImagePullPolicy
+	Expect(pp).Should(Equal(o.value))
+}
 
 func getCDI(client realClient.Client, cdi *cdiviaplha1.CDI) (*cdiviaplha1.CDI, error) {
 	result, err := getObject(client, cdi)
@@ -519,17 +594,18 @@ func createReconciler(client realClient.Client) *ReconcileCDI {
 	namespace := "cdi"
 	clusterArgs := &clusterResources.FactoryArgs{Namespace: namespace}
 	namespacedArgs := &namespaceResources.FactoryArgs{
-		DockerRepo:        "kubevirt",
-		DockerTag:         version,
-		ControllerImage:   "cdi-controller",
-		ImporterImage:     "cdi-importer",
-		ClonerImage:       "cdi-cloner",
-		APIServerImage:    "cdi-apiserver",
-		UploadProxyImage:  "cdi-uploadproxy",
-		UploadServerImage: "cdi-uploadserver",
-		Verbosity:         "1",
-		PullPolicy:        "Always",
-		Namespace:         namespace,
+		DockerRepo:             "kubevirt",
+		DockerTag:              version,
+		DeployClusterResources: "true",
+		ControllerImage:        "cdi-controller",
+		ImporterImage:          "cdi-importer",
+		ClonerImage:            "cdi-cloner",
+		APIServerImage:         "cdi-apiserver",
+		UploadProxyImage:       "cdi-uploadproxy",
+		UploadServerImage:      "cdi-uploadserver",
+		Verbosity:              "1",
+		PullPolicy:             "Always",
+		Namespace:              namespace,
 	}
 
 	return &ReconcileCDI{

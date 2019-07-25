@@ -20,20 +20,19 @@
 package tests_test
 
 import (
-	"flag"
 	"fmt"
 	"runtime"
 
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
 
-	"kubevirt.io/kubevirt/pkg/kubecli"
+	"kubevirt.io/client-go/kubecli"
 	"kubevirt.io/kubevirt/tests"
 )
 
 var _ = Describe("Version", func() {
 
-	flag.Parse()
+	tests.FlagParse()
 
 	virtClient, err := kubecli.GetKubevirtClient()
 	tests.PanicOnError(err)

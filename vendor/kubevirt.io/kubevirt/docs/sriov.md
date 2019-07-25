@@ -66,15 +66,9 @@ you may need to configure the host as follows:
 $ echo "options vfio_iommu_type1 allow_unsafe_interrupts=1" > /etc/modprobe.d/iommu_unsafe_interrupts.conf
 ```
 
-Also, make sure that vfio devices are accessible to kvm group by configuring udev rules:
-
-```
-$ cat /etc/udev/rules.d/10-qemu-hw-users.rules
-SUBSYSTEM=="vfio", OWNER="root", GROUP="root", MODE="0666"
-KERNEL=="vfio", SUBSYSTEM=="misc", OWNER="root", GROUP="root", MODE="0666"
-KERNEL=="kvm", GROUP="root", MODE="0666"
-$ udevadm control --reload-rules && udevadm trigger
-```
+Finally, we need to unbind each device from its respective network driver and
+register it with vfio subsystem. You can find an example on how to do it under:
+`tools/util/vfio.sh`
 
 Now you are ready to set up your cluster.
 

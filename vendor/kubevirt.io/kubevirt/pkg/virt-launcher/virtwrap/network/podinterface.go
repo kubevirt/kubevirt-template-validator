@@ -29,9 +29,9 @@ import (
 
 	"github.com/vishvananda/netlink"
 
-	v1 "kubevirt.io/kubevirt/pkg/api/v1"
-	"kubevirt.io/kubevirt/pkg/log"
-	"kubevirt.io/kubevirt/pkg/precond"
+	v1 "kubevirt.io/client-go/api/v1"
+	"kubevirt.io/client-go/log"
+	"kubevirt.io/client-go/precond"
 	"kubevirt.io/kubevirt/pkg/virt-launcher/virtwrap/api"
 )
 
@@ -539,6 +539,15 @@ func (p *MasqueradePodInterface) createNatRules() error {
 
 	err = Handler.IptablesAppendRule("nat", "POSTROUTING", "-o", p.bridgeInterfaceName, "-j", "KUBEVIRT_POSTINBOUND")
 	if err != nil {
+		return err
+	}
+
+	if len(p.iface.Ports) == 0 {
+		err = Handler.IptablesAppendRule("nat", "KUBEVIRT_PREINBOUND",
+			"-j",
+			"DNAT",
+			"--to-destination", p.vif.IP.IP.String())
+
 		return err
 	}
 

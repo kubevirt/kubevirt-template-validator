@@ -2,8 +2,10 @@ package main
 
 import (
 	"context"
+	"crypto/rsa"
 	"flag"
 	"fmt"
+	"io/ioutil"
 	"os"
 	"os/signal"
 
@@ -121,9 +123,7 @@ func start(cfg *rest.Config, stopCh <-chan struct{}) {
 	serviceInformerFactory := k8sinformers.NewFilteredSharedInformerFactory(client, common.DefaultResyncPeriod, "", func(options *v1.ListOptions) {
 		options.LabelSelector = common.CDILabelSelector
 	})
-	ingressInformerFactory := k8sinformers.NewFilteredSharedInformerFactory(client, common.DefaultResyncPeriod, "", func(options *v1.ListOptions) {
-		options.LabelSelector = common.CDILabelSelector
-	})
+	ingressInformerFactory := k8sinformers.NewSharedInformerFactory(client, common.DefaultResyncPeriod)
 	routeInformerFactory := routeinformers.NewSharedInformerFactory(openshiftClient, common.DefaultResyncPeriod)
 
 	pvcInformer := pvcInformerFactory.Core().V1().PersistentVolumeClaims()
@@ -154,7 +154,8 @@ func start(cfg *rest.Config, stopCh <-chan struct{}) {
 		podInformer,
 		clonerImage,
 		pullPolicy,
-		verbose)
+		verbose,
+		getAPIServerPublicKey())
 
 	uploadController := controller.NewUploadController(
 		client,
@@ -234,10 +235,6 @@ func start(cfg *rest.Config, stopCh <-chan struct{}) {
 			klog.Fatalf("Error running config controller: %+v", err)
 		}
 	}()
-
-	if err = createReadyFile(); err != nil {
-		klog.Fatalf("Error creating ready file: %+v", err)
-	}
 }
 
 func main() {
@@ -256,6 +253,10 @@ func main() {
 
 	if err != nil {
 		klog.Fatalf("Unable to start leader election: %v\n", errors.WithStack(err))
+	}
+
+	if err = createReadyFile(); err != nil {
+		klog.Fatalf("Error creating ready file: %+v", err)
 	}
 
 	<-stopCh
@@ -289,4 +290,18 @@ func handleSignals() <-chan struct{} {
 		os.Exit(1)
 	}()
 	return stopCh
+}
+
+func getAPIServerPublicKey() *rsa.PublicKey {
+	keyBytes, err := ioutil.ReadFile(controller.APIServerPublicKeyPath)
+	if err != nil {
+		klog.Fatalf("Error reading apiserver public key")
+	}
+
+	key, err := controller.DecodePublicKey(keyBytes)
+	if err != nil {
+		klog.Fatalf("Error decoding public key")
+	}
+
+	return key
 }

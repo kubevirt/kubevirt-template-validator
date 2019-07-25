@@ -20,7 +20,6 @@
 package tests_test
 
 import (
-	"flag"
 	"fmt"
 	"time"
 
@@ -29,8 +28,8 @@ import (
 	. "github.com/onsi/gomega"
 	k8sv1 "k8s.io/api/core/v1"
 
-	v1 "kubevirt.io/kubevirt/pkg/api/v1"
-	"kubevirt.io/kubevirt/pkg/kubecli"
+	v1 "kubevirt.io/client-go/api/v1"
+	"kubevirt.io/client-go/kubecli"
 	"kubevirt.io/kubevirt/tests"
 )
 
@@ -38,7 +37,7 @@ const cloudinitHookSidecarImage = "example-cloudinit-hook-sidecar"
 
 var _ = Describe("CloudInitHookSidecars", func() {
 
-	flag.Parse()
+	tests.FlagParse()
 
 	virtClient, err := kubecli.GetKubevirtClient()
 	tests.PanicOnError(err)
@@ -89,7 +88,7 @@ var _ = Describe("CloudInitHookSidecars", func() {
 		tests.BeforeTestCleanup()
 		vmi = tests.NewRandomVMIWithEphemeralDiskAndUserdata(tests.ContainerDiskFor(tests.ContainerDiskCirros), "#FAKE")
 		vmi.ObjectMeta.Annotations = map[string]string{
-			"hooks.kubevirt.io/hookSidecars": fmt.Sprintf(`[{"image": "%s/%s:%s", "imagePullPolicy": "IfNotPresent"}]`, tests.KubeVirtRepoPrefix, cloudinitHookSidecarImage, tests.KubeVirtVersionTag),
+			"hooks.kubevirt.io/hookSidecars": fmt.Sprintf(`[{"image": "%s/%s:%s", "imagePullPolicy": "IfNotPresent"}]`, tests.KubeVirtUtilityRepoPrefix, cloudinitHookSidecarImage, tests.KubeVirtUtilityVersionTag),
 		}
 	})
 

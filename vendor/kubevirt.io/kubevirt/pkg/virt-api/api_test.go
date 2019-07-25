@@ -26,7 +26,7 @@ import (
 	"net/http/httptest"
 	"os"
 
-	"github.com/emicklei/go-restful"
+	restful "github.com/emicklei/go-restful"
 	"github.com/golang/mock/gomock"
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
@@ -37,14 +37,14 @@ import (
 	"k8s.io/client-go/tools/cache"
 	"k8s.io/client-go/tools/clientcmd"
 	"k8s.io/client-go/util/cert"
-	"k8s.io/client-go/util/cert/triple"
 	aggregatorclient "k8s.io/kube-aggregator/pkg/client/clientset_generated/clientset"
 
+	"kubevirt.io/kubevirt/pkg/certificates/triple"
 	"kubevirt.io/kubevirt/pkg/util"
 
-	v1 "kubevirt.io/kubevirt/pkg/api/v1"
-	"kubevirt.io/kubevirt/pkg/kubecli"
-	"kubevirt.io/kubevirt/pkg/log"
+	v1 "kubevirt.io/client-go/api/v1"
+	"kubevirt.io/client-go/kubecli"
+	"kubevirt.io/client-go/log"
 	"kubevirt.io/kubevirt/pkg/virt-api/rest"
 )
 
@@ -118,10 +118,6 @@ var _ = Describe("Virt-api", func() {
 		It("should generate certs the first time it is run", func() {
 			server.AppendHandlers(
 				ghttp.CombineHandlers(
-					ghttp.VerifyRequest("GET", "/api/v1/namespaces/kubevirt/secrets/"+virtApiCertSecretName),
-					ghttp.RespondWithJSONEncoded(http.StatusNotFound, nil),
-				),
-				ghttp.CombineHandlers(
 					ghttp.VerifyRequest("POST", "/api/v1/namespaces/kubevirt/secrets"),
 					ghttp.RespondWithJSONEncoded(http.StatusOK, nil),
 				),
@@ -165,6 +161,10 @@ var _ = Describe("Virt-api", func() {
 			}
 
 			server.AppendHandlers(
+				ghttp.CombineHandlers(
+					ghttp.VerifyRequest("POST", "/api/v1/namespaces/kubevirt/secrets"),
+					ghttp.RespondWithJSONEncoded(http.StatusConflict, nil),
+				),
 				ghttp.CombineHandlers(
 					ghttp.VerifyRequest("GET", "/api/v1/namespaces/kubevirt/secrets/"+virtApiCertSecretName),
 					ghttp.RespondWithJSONEncoded(http.StatusOK, secret),
@@ -301,19 +301,6 @@ var _ = Describe("Virt-api", func() {
 			Expect(err).ToNot(HaveOccurred())
 		}, 5)
 
-		It("should fail if apiservice is at different namespace", func() {
-			badApiService := app.subresourceApiservice()
-			badApiService.Spec.Service.Namespace = "differentnamespace"
-			server.AppendHandlers(
-				ghttp.CombineHandlers(
-					ghttp.VerifyRequest("GET", "/apis/apiregistration.k8s.io/v1beta1/apiservices/"+subresourceAggregatedApiName),
-					ghttp.RespondWithJSONEncoded(http.StatusOK, badApiService),
-				),
-			)
-			err := app.createSubresourceApiservice()
-			Expect(err).To(HaveOccurred())
-		}, 5)
-
 		It("should return internal error on authorizor error", func() {
 			app.authorizor = authorizorMock
 			authorizorMock.EXPECT().
@@ -448,20 +435,6 @@ var _ = Describe("Virt-api", func() {
 			Expect(err).ToNot(HaveOccurred())
 		}, 5)
 
-		It("should fail if validating webhook service at different namespace", func() {
-			expectedValidatingWebhooks.Webhooks[0].ClientConfig.Service.Namespace = "WrongNamespace"
-
-			server.AppendHandlers(
-				ghttp.CombineHandlers(
-					ghttp.VerifyRequest("GET", "/apis/admissionregistration.k8s.io/v1beta1/validatingwebhookconfigurations/virt-api-validator"),
-					ghttp.RespondWithJSONEncoded(http.StatusOK, expectedValidatingWebhooks),
-				),
-			)
-
-			err := app.createValidatingWebhook()
-			Expect(err).To(HaveOccurred())
-		}, 5)
-
 		It("should register mutating webhook if not found", func() {
 			server.AppendHandlers(
 				ghttp.CombineHandlers(
@@ -496,25 +469,10 @@ var _ = Describe("Virt-api", func() {
 			Expect(err).ToNot(HaveOccurred())
 		}, 5)
 
-		It("should fail if validating webhook service at different namespace", func() {
-
-			expectedMutatingWebhooks.Webhooks[0].ClientConfig.Service.Namespace = "WrongNamespace"
-
-			server.AppendHandlers(
-				ghttp.CombineHandlers(
-					ghttp.VerifyRequest("GET", "/apis/admissionregistration.k8s.io/v1beta1/mutatingwebhookconfigurations/virt-api-mutator"),
-					ghttp.RespondWithJSONEncoded(http.StatusOK, expectedMutatingWebhooks),
-				),
-			)
-
-			err := app.createMutatingWebhook()
-			Expect(err).To(HaveOccurred())
-		}, 5)
-
 		It("should have default values for flags", func() {
 			app.AddFlags()
 			Expect(app.SwaggerUI).To(Equal("third_party/swagger-ui"))
-			Expect(app.SubresourcesOnly).To(Equal(false))
+			Expect(app.SubresourcesOnly).To(BeFalse())
 		}, 5)
 
 	})

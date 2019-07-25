@@ -20,7 +20,7 @@
 package tests_test
 
 import (
-	"flag"
+	"fmt"
 	"strings"
 	"time"
 
@@ -29,16 +29,18 @@ import (
 	"github.com/onsi/ginkgo/extensions/table"
 	. "github.com/onsi/gomega"
 	k8sv1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
+	"k8s.io/apimachinery/pkg/util/rand"
 
-	v1 "kubevirt.io/kubevirt/pkg/api/v1"
-	"kubevirt.io/kubevirt/pkg/kubecli"
-	"kubevirt.io/kubevirt/pkg/log"
+	v1 "kubevirt.io/client-go/api/v1"
+	"kubevirt.io/client-go/kubecli"
+	"kubevirt.io/client-go/log"
 	"kubevirt.io/kubevirt/tests"
 )
 
 var _ = Describe("Slirp Networking", func() {
 
-	flag.Parse()
+	tests.FlagParse()
 
 	virtClient, err := kubecli.GetKubevirtClient()
 	tests.PanicOnError(err)
@@ -46,8 +48,16 @@ var _ = Describe("Slirp Networking", func() {
 	var genericVmi *v1.VirtualMachineInstance
 	var deadbeafVmi *v1.VirtualMachineInstance
 	var container k8sv1.Container
+	setSlirpEnabled := func(enable bool) {
+		tests.UpdateClusterConfigValue("permitSlirpInterface", fmt.Sprintf("%t", enable))
+	}
+
+	setDefaultNetworkInterface := func(iface string) {
+		tests.UpdateClusterConfigValue("default-network-interface", fmt.Sprintf("%s", iface))
+	}
 
 	tests.BeforeAll(func() {
+		setSlirpEnabled(true)
 		ports := []v1.Port{{Name: "http", Port: 80}}
 		genericVmi = tests.NewRandomVMIWithSlirpInterfaceEphemeralDiskAndUserdata(tests.ContainerDiskFor(tests.ContainerDiskCirros), "#!/bin/bash\necho 'hello'\n", ports)
 		deadbeafVmi = tests.NewRandomVMIWithSlirpInterfaceEphemeralDiskAndUserdata(tests.ContainerDiskFor(tests.ContainerDiskCirros), "#!/bin/bash\necho 'hello'\n", ports)
@@ -57,8 +67,11 @@ var _ = Describe("Slirp Networking", func() {
 			vmi, err = virtClient.VirtualMachineInstance(tests.NamespaceTestDefault).Create(vmi)
 			Expect(err).ToNot(HaveOccurred())
 			tests.WaitForSuccessfulVMIStartIgnoreWarnings(vmi)
-			generateHelloWorldServer(vmi, virtClient, 80, "tcp")
+			tests.GenerateHelloWorldServer(vmi, 80, "tcp")
 		}
+	})
+	AfterEach(func() {
+		setSlirpEnabled(false)
 	})
 
 	table.DescribeTable("should be able to", func(vmiRef **v1.VirtualMachineInstance) {
@@ -127,4 +140,25 @@ var _ = Describe("Slirp Networking", func() {
 		table.Entry("VirtualMachineInstance with slirp interface", &genericVmi),
 		table.Entry("VirtualMachineInstance with slirp interface with custom MAC address", &deadbeafVmi),
 	)
+
+	Context("vmi with default slirp interface", func() {
+		BeforeEach(func() {
+			setSlirpEnabled(false)
+			setDefaultNetworkInterface("slirp")
+		})
+		AfterEach(func() {
+			setSlirpEnabled(true)
+			setDefaultNetworkInterface("bridge")
+		})
+		It("should reject VMIs with deafult interface slirp when it's not permitted", func() {
+			var t int64 = 0
+			vmi := v1.NewMinimalVMIWithNS(tests.NamespaceTestDefault, "testvmi"+rand.String(48))
+			vmi.Spec.TerminationGracePeriodSeconds = &t
+			vmi.Spec.Domain.Resources.Requests[k8sv1.ResourceMemory] = resource.MustParse("64M")
+			tests.AddEphemeralDisk(vmi, "disk0", "virtio", tests.ContainerDiskFor(tests.ContainerDiskCirros))
+
+			vmi, err = virtClient.VirtualMachineInstance(tests.NamespaceTestDefault).Create(vmi)
+			Expect(err).To(HaveOccurred())
+		})
+	})
 })

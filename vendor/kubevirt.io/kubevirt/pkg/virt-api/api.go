@@ -27,32 +27,33 @@ import (
 	"net/http"
 	"sync"
 
-	"github.com/emicklei/go-restful"
+	restful "github.com/emicklei/go-restful"
 	restfulspec "github.com/emicklei/go-restful-openapi"
 	"github.com/go-openapi/spec"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	flag "github.com/spf13/pflag"
 	admissionregistrationv1beta1 "k8s.io/api/admissionregistration/v1beta1"
 	k8sv1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/errors"
 	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/client-go/tools/cache"
 	"k8s.io/client-go/util/cert"
-	"k8s.io/client-go/util/cert/triple"
 	apiregistrationv1beta1 "k8s.io/kube-aggregator/pkg/apis/apiregistration/v1beta1"
 	aggregatorclient "k8s.io/kube-aggregator/pkg/client/clientset_generated/clientset"
 
-	v1 "kubevirt.io/kubevirt/pkg/api/v1"
+	v1 "kubevirt.io/client-go/api/v1"
+	"kubevirt.io/client-go/kubecli"
+	"kubevirt.io/client-go/log"
+	"kubevirt.io/client-go/version"
+	"kubevirt.io/kubevirt/pkg/certificates/triple"
 	"kubevirt.io/kubevirt/pkg/controller"
 	"kubevirt.io/kubevirt/pkg/healthz"
-	"kubevirt.io/kubevirt/pkg/kubecli"
-	"kubevirt.io/kubevirt/pkg/log"
 	"kubevirt.io/kubevirt/pkg/rest/filter"
 	"kubevirt.io/kubevirt/pkg/service"
 	"kubevirt.io/kubevirt/pkg/util"
 	"kubevirt.io/kubevirt/pkg/util/openapi"
-	"kubevirt.io/kubevirt/pkg/version"
 	"kubevirt.io/kubevirt/pkg/virt-api/rest"
 	"kubevirt.io/kubevirt/pkg/virt-api/webhooks"
 	mutating_webhook "kubevirt.io/kubevirt/pkg/virt-api/webhooks/mutating-webhook"
@@ -107,6 +108,7 @@ type virtAPIApp struct {
 	aggregatorClient *aggregatorclient.Clientset
 	authorizor       rest.VirtApiAuthorizor
 	certsDirectory   string
+	clusterConfig    *virtconfig.ClusterConfig
 
 	signingCertBytes []byte
 	certBytes        []byte
@@ -127,8 +129,6 @@ func NewVirtApi() VirtApi {
 }
 
 func (app *virtAPIApp) Execute() {
-	virtconfig.Init()
-
 	virtCli, err := kubecli.GetKubevirtClient()
 	if err != nil {
 		panic(err)
@@ -203,7 +203,8 @@ func (app *virtAPIApp) composeSubresources() {
 		Operation("restart").
 		Doc("Restart a VirtualMachine object.").
 		Returns(http.StatusOK, "OK", nil).
-		Returns(http.StatusNotFound, "Not Found", nil))
+		Returns(http.StatusNotFound, "Not Found", nil).
+		Returns(http.StatusBadRequest, "Bad Request", nil))
 
 	subws.Route(subws.PUT(rest.ResourcePath(subresourcesvmGVR)+rest.SubResourcePath("start")).
 		To(subresourceApp.StartVMRequestHandler).
@@ -211,7 +212,8 @@ func (app *virtAPIApp) composeSubresources() {
 		Operation("start").
 		Doc("Start a VirtualMachine object.").
 		Returns(http.StatusOK, "OK", nil).
-		Returns(http.StatusNotFound, "Not Found", nil))
+		Returns(http.StatusNotFound, "Not Found", nil).
+		Returns(http.StatusBadRequest, "Bad Request", nil))
 
 	subws.Route(subws.PUT(rest.ResourcePath(subresourcesvmGVR)+rest.SubResourcePath("stop")).
 		To(subresourceApp.StopVMRequestHandler).
@@ -219,7 +221,8 @@ func (app *virtAPIApp) composeSubresources() {
 		Operation("stop").
 		Doc("Stop a VirtualMachine object.").
 		Returns(http.StatusOK, "OK", nil).
-		Returns(http.StatusNotFound, "Not Found", nil))
+		Returns(http.StatusNotFound, "Not Found", nil).
+		Returns(http.StatusBadRequest, "Bad Request", nil))
 
 	subws.Route(subws.GET(rest.ResourcePath(subresourcesvmiGVR) + rest.SubResourcePath("console")).
 		To(subresourceApp.ConsoleRequestHandler).
@@ -448,67 +451,54 @@ func (app *virtAPIApp) readRequestHeader() error {
 func (app *virtAPIApp) getSelfSignedCert() error {
 	var ok bool
 
-	generateCerts := false
-	secret, err := app.virtCli.CoreV1().Secrets(app.namespace).Get(virtApiCertSecretName, metav1.GetOptions{})
-	if err != nil {
-		if k8serrors.IsNotFound(err) {
-			generateCerts = true
-		} else {
-			return err
-		}
+	caKeyPair, _ := triple.NewCA("kubevirt.io")
+	keyPair, _ := triple.NewServerKeyPair(
+		caKeyPair,
+		"virt-api."+app.namespace+".pod.cluster.local",
+		"virt-api",
+		app.namespace,
+		"cluster.local",
+		nil,
+		nil,
+	)
+
+	secret := &k8sv1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      virtApiCertSecretName,
+			Namespace: app.namespace,
+			Labels: map[string]string{
+				v1.AppLabel: "virt-api-aggregator",
+			},
+		},
+		Type: "Opaque",
+		Data: map[string][]byte{
+			certBytesValue:        cert.EncodeCertPEM(keyPair.Cert),
+			keyBytesValue:         cert.EncodePrivateKeyPEM(keyPair.Key),
+			signingCertBytesValue: cert.EncodeCertPEM(caKeyPair.Cert),
+		},
 	}
-
-	if generateCerts {
-		// Generate new certs if secret doesn't already exist
-		caKeyPair, _ := triple.NewCA("kubevirt.io")
-		keyPair, _ := triple.NewServerKeyPair(
-			caKeyPair,
-			"virt-api."+app.namespace+".pod.cluster.local",
-			"virt-api",
-			app.namespace,
-			"cluster.local",
-			nil,
-			nil,
-		)
-
-		app.keyBytes = cert.EncodePrivateKeyPEM(keyPair.Key)
-		app.certBytes = cert.EncodeCertPEM(keyPair.Cert)
-		app.signingCertBytes = cert.EncodeCertPEM(caKeyPair.Cert)
-
-		secret := k8sv1.Secret{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      virtApiCertSecretName,
-				Namespace: app.namespace,
-				Labels: map[string]string{
-					v1.AppLabel: "virt-api-aggregator",
-				},
-			},
-			Type: "Opaque",
-			Data: map[string][]byte{
-				certBytesValue:        app.certBytes,
-				keyBytesValue:         app.keyBytes,
-				signingCertBytesValue: app.signingCertBytes,
-			},
-		}
-		_, err := app.virtCli.CoreV1().Secrets(app.namespace).Create(&secret)
+	_, err := app.virtCli.CoreV1().Secrets(app.namespace).Create(secret)
+	if errors.IsAlreadyExists(err) {
+		secret, err = app.virtCli.CoreV1().Secrets(app.namespace).Get(virtApiCertSecretName, metav1.GetOptions{})
 		if err != nil {
 			return err
 		}
-	} else {
-		// retrieve self signed cert info from secret
+	} else if err != nil {
+		return err
+	}
+	// retrieve self signed cert info from secret
 
-		app.certBytes, ok = secret.Data[certBytesValue]
-		if !ok {
-			return fmt.Errorf("%s value not found in %s virt-api secret", certBytesValue, virtApiCertSecretName)
-		}
-		app.keyBytes, ok = secret.Data[keyBytesValue]
-		if !ok {
-			return fmt.Errorf("%s value not found in %s virt-api secret", keyBytesValue, virtApiCertSecretName)
-		}
-		app.signingCertBytes, ok = secret.Data[signingCertBytesValue]
-		if !ok {
-			return fmt.Errorf("%s value not found in %s virt-api secret", signingCertBytesValue, virtApiCertSecretName)
-		}
+	app.certBytes, ok = secret.Data[certBytesValue]
+	if !ok {
+		return fmt.Errorf("%s value not found in %s virt-api secret", certBytesValue, virtApiCertSecretName)
+	}
+	app.keyBytes, ok = secret.Data[keyBytesValue]
+	if !ok {
+		return fmt.Errorf("%s value not found in %s virt-api secret", keyBytesValue, virtApiCertSecretName)
+	}
+	app.signingCertBytes, ok = secret.Data[signingCertBytesValue]
+	if !ok {
+		return fmt.Errorf("%s value not found in %s virt-api secret", signingCertBytesValue, virtApiCertSecretName)
 	}
 	return nil
 }
@@ -726,11 +716,6 @@ func (app *virtAPIApp) createValidatingWebhook() error {
 			return err
 		}
 	} else {
-		for _, webhook := range webhookRegistration.Webhooks {
-			if webhook.ClientConfig.Service != nil && webhook.ClientConfig.Service.Namespace != app.namespace {
-				return fmt.Errorf("ValidatingAdmissionWebhook [%s] is already registered using services endpoints in a different namespace. Existing webhook registration must be deleted before virt-api can proceed.", virtWebhookValidator)
-			}
-		}
 
 		// update registered webhook with our data
 		webhookRegistration.Webhooks = webHooks
@@ -742,22 +727,22 @@ func (app *virtAPIApp) createValidatingWebhook() error {
 	}
 
 	http.HandleFunc(vmiCreateValidatePath, func(w http.ResponseWriter, r *http.Request) {
-		validating_webhook.ServeVMICreate(w, r)
+		validating_webhook.ServeVMICreate(w, r, app.clusterConfig)
 	})
 	http.HandleFunc(vmiUpdateValidatePath, func(w http.ResponseWriter, r *http.Request) {
 		validating_webhook.ServeVMIUpdate(w, r)
 	})
 	http.HandleFunc(vmValidatePath, func(w http.ResponseWriter, r *http.Request) {
-		validating_webhook.ServeVMs(w, r)
+		validating_webhook.ServeVMs(w, r, app.clusterConfig)
 	})
 	http.HandleFunc(vmirsValidatePath, func(w http.ResponseWriter, r *http.Request) {
-		validating_webhook.ServeVMIRS(w, r)
+		validating_webhook.ServeVMIRS(w, r, app.clusterConfig)
 	})
 	http.HandleFunc(vmipresetValidatePath, func(w http.ResponseWriter, r *http.Request) {
 		validating_webhook.ServeVMIPreset(w, r)
 	})
 	http.HandleFunc(migrationCreateValidatePath, func(w http.ResponseWriter, r *http.Request) {
-		validating_webhook.ServeMigrationCreate(w, r)
+		validating_webhook.ServeMigrationCreate(w, r, app.clusterConfig)
 	})
 	http.HandleFunc(migrationUpdateValidatePath, func(w http.ResponseWriter, r *http.Request) {
 		validating_webhook.ServeMigrationUpdate(w, r)
@@ -844,12 +829,6 @@ func (app *virtAPIApp) createMutatingWebhook() error {
 		}
 	} else {
 
-		for _, webhook := range webhookRegistration.Webhooks {
-			if webhook.ClientConfig.Service != nil && webhook.ClientConfig.Service.Namespace != app.namespace {
-				return fmt.Errorf("MutatingAdmissionWebhook [%s] is already registered using services endpoints in a different namespace. Existing webhook registration must be deleted before virt-api can proceed.", virtWebhookMutator)
-			}
-		}
-
 		// update registered webhook with our data
 		webhookRegistration.Webhooks = webHooks
 
@@ -860,7 +839,7 @@ func (app *virtAPIApp) createMutatingWebhook() error {
 	}
 
 	http.HandleFunc(vmiMutatePath, func(w http.ResponseWriter, r *http.Request) {
-		mutating_webhook.ServeVMIs(w, r)
+		mutating_webhook.ServeVMIs(w, r, app.clusterConfig)
 	})
 	http.HandleFunc(migrationMutatePath, func(w http.ResponseWriter, r *http.Request) {
 		mutating_webhook.ServeMigrationCreate(w, r)
@@ -916,9 +895,6 @@ func (app *virtAPIApp) createSubresourceApiservice() error {
 			return err
 		}
 	} else {
-		if apiService.Spec.Service != nil && apiService.Spec.Service.Namespace != app.namespace {
-			return fmt.Errorf("apiservice [%s] is already registered in a different namespace. Existing apiservice registration must be deleted before virt-api can proceed.", subresourceApiservice.Name)
-		}
 
 		// Always update spec to latest.
 		apiService.Spec = app.subresourceApiservice().Spec
@@ -1030,19 +1006,23 @@ func (app *virtAPIApp) Run() {
 
 	// Run informers for webhooks usage
 	webhookInformers := webhooks.GetInformers()
+	kubeInformerFactory := controller.NewKubeInformerFactory(app.virtCli.RestClient(), app.virtCli, app.namespace)
+	configMapInformer := kubeInformerFactory.ConfigMap()
 
 	stopChan := make(chan struct{}, 1)
 	defer close(stopChan)
 	go webhookInformers.VMIInformer.Run(stopChan)
 	go webhookInformers.VMIPresetInformer.Run(stopChan)
 	go webhookInformers.NamespaceLimitsInformer.Run(stopChan)
-	go webhookInformers.ConfigMapInformer.Run(stopChan)
+	go configMapInformer.Run(stopChan)
 
 	cache.WaitForCacheSync(stopChan,
 		webhookInformers.VMIInformer.HasSynced,
 		webhookInformers.VMIPresetInformer.HasSynced,
 		webhookInformers.NamespaceLimitsInformer.HasSynced,
-		webhookInformers.ConfigMapInformer.HasSynced)
+		configMapInformer.HasSynced)
+
+	app.clusterConfig = virtconfig.NewClusterConfig(configMapInformer, app.namespace)
 
 	// Verify/create webhook endpoint.
 	err = app.createWebhook()

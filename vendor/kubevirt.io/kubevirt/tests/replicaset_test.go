@@ -20,7 +20,6 @@
 package tests_test
 
 import (
-	"flag"
 	"fmt"
 	"net/http"
 	"strings"
@@ -36,14 +35,14 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/json"
 
-	v1 "kubevirt.io/kubevirt/pkg/api/v1"
-	"kubevirt.io/kubevirt/pkg/kubecli"
+	v1 "kubevirt.io/client-go/api/v1"
+	"kubevirt.io/client-go/kubecli"
 	"kubevirt.io/kubevirt/tests"
 )
 
 var _ = Describe("[rfe_id:588][crit:medium][vendor:cnv-qe@redhat.com][level:component]VirtualMachineInstanceReplicaSet", func() {
 
-	flag.Parse()
+	tests.FlagParse()
 
 	virtClient, err := kubecli.GetKubevirtClient()
 	tests.PanicOnError(err)
@@ -414,7 +413,7 @@ var _ = Describe("[rfe_id:588][crit:medium][vendor:cnv-qe@redhat.com][level:comp
 				return true
 			}
 			return false
-		}, 120*time.Second, time.Second).Should(Equal(true))
+		}, 120*time.Second, time.Second).Should(BeTrue())
 
 		By("Checking number of RS VM's")
 		vmis, err = virtClient.VirtualMachineInstance(tests.NamespaceTestDefault).List(&v12.ListOptions{})

@@ -20,8 +20,8 @@
 package tests_test
 
 import (
-	"flag"
 	"fmt"
+	"io/ioutil"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -35,7 +35,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/rand"
 
-	"kubevirt.io/kubevirt/pkg/kubecli"
+	"kubevirt.io/client-go/kubecli"
 	"kubevirt.io/kubevirt/tests"
 	vmsgen "kubevirt.io/kubevirt/tools/vms-generator/utils"
 )
@@ -47,13 +47,14 @@ const (
 )
 
 var _ = Describe("Templates", func() {
-	flag.Parse()
+	tests.FlagParse()
 
 	virtClient, err := kubecli.GetKubevirtClient()
 	tests.PanicOnError(err)
 
 	var (
 		templateParams map[string]string
+		workDir        string
 		templateFile   string
 		vmName         string
 	)
@@ -63,6 +64,17 @@ var _ = Describe("Templates", func() {
 		tests.BeforeTestCleanup()
 		SetDefaultEventuallyTimeout(120 * time.Second)
 		SetDefaultEventuallyPollingInterval(2 * time.Second)
+
+		workDir, err = ioutil.TempDir("", tests.TempDirPrefix+"-")
+		Expect(err).ToNot(HaveOccurred())
+	})
+
+	AfterEach(func() {
+		if workDir != "" {
+			err := os.RemoveAll(workDir)
+			Expect(err).ToNot(HaveOccurred())
+			workDir = ""
+		}
 	})
 
 	Describe("Creating VM from Template", func() {
@@ -89,7 +101,7 @@ var _ = Describe("Templates", func() {
 				ExpectWithOffset(1, template).NotTo(BeNil(), "template object was not provided")
 				By("Creating the Template JSON file")
 				var err error
-				templateFile, err = tests.GenerateTemplateJson(template)
+				templateFile, err = tests.GenerateTemplateJson(template, workDir)
 				ExpectWithOffset(1, err).ToNot(HaveOccurred(), "failed to write template JSON file: %v", err)
 				ExpectWithOffset(1, templateFile).To(BeAnExistingFile(), "template JSON file %q was not created", templateFile)
 

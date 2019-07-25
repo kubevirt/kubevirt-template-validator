@@ -20,9 +20,11 @@
 package tests_test
 
 import (
+	"crypto/tls"
 	"encoding/json"
-	"flag"
+
 	"fmt"
+	"net/http"
 	"sort"
 	"strconv"
 	"strings"
@@ -37,16 +39,17 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/fields"
 	"k8s.io/apimachinery/pkg/labels"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/tools/leaderelection/resourcelock"
 
-	v1 "kubevirt.io/kubevirt/pkg/api/v1"
-	"kubevirt.io/kubevirt/pkg/kubecli"
+	v1 "kubevirt.io/client-go/api/v1"
+	"kubevirt.io/client-go/kubecli"
 	"kubevirt.io/kubevirt/pkg/virt-controller/leaderelectionconfig"
 	"kubevirt.io/kubevirt/tests"
 )
 
 var _ = Describe("Infrastructure", func() {
-	flag.Parse()
+	tests.FlagParse()
 
 	virtClient, err := kubecli.GetKubevirtClient()
 	tests.PanicOnError(err)
@@ -56,7 +59,7 @@ var _ = Describe("Infrastructure", func() {
 	})
 
 	Describe("Prometheus Endpoints", func() {
-		It("should be exposed and and registered on the metrics endpoint", func() {
+		It("should be exposed and registered on the metrics endpoint", func() {
 			endpoint, err := virtClient.CoreV1().Endpoints(tests.KubeVirtInstallNamespace).Get("kubevirt-prometheus-metrics", metav1.GetOptions{})
 			Expect(err).ToNot(HaveOccurred())
 			l, err := labels.Parse("prometheus.kubevirt.io")
@@ -104,6 +107,65 @@ var _ = Describe("Infrastructure", func() {
 				Expect(stdout).To(ContainSubstring("go_goroutines"))
 			}
 		})
+
+		It("should throttle the Prometheus metrics access", func() {
+			By("Creating the VirtualMachineInstance")
+			vmi := tests.NewRandomVMI()
+
+			By("Starting a new VirtualMachineInstance")
+			obj, err := virtClient.RestClient().Post().Resource("virtualmachineinstances").Namespace(tests.NamespaceTestDefault).Body(vmi).Do().Get()
+			Expect(err).ToNot(HaveOccurred(), "Should create VMI")
+
+			By("Waiting until the VM is ready")
+			nodeName := tests.WaitForSuccessfulVMIStart(obj)
+
+			By("Finding the prometheus endpoint")
+			pod, err := kubecli.NewVirtHandlerClient(virtClient).ForNode(nodeName).Pod()
+			Expect(err).ToNot(HaveOccurred(), "Should find the virt-handler pod")
+
+			By("Scraping the Prometheus endpoint")
+
+			concurrency := 100 // random value "much higher" than maxRequestsInFlight
+			metricsURL := fmt.Sprintf("https://%s:%s/metrics", pod.Status.PodIP, "8443")
+
+			tr := &http.Transport{
+				MaxIdleConnsPerHost: concurrency,
+				TLSClientConfig: &tls.Config{
+					InsecureSkipVerify: true,
+				},
+			}
+
+			client := http.Client{
+				Timeout:   time.Duration(1 * time.Second),
+				Transport: tr,
+			}
+
+			errors := make(chan error)
+			for ix := 0; ix < concurrency; ix++ {
+				go func() {
+					req, _ := http.NewRequest("GET", metricsURL, nil)
+					resp, err := client.Do(req)
+					if err != nil {
+						fmt.Fprintf(GinkgoWriter, "client: request: %v #%d: %v\n", req, ix, err) // troubleshooting helper
+					} else {
+						resp.Body.Close()
+					}
+					errors <- err
+				}()
+			}
+
+			errorCount := 0
+			for ix := 0; ix < concurrency; ix++ {
+				err := <-errors
+				if err != nil {
+					errorCount += 1
+				}
+			}
+
+			fmt.Fprintf(GinkgoWriter, "client: total errors #%d\n", errorCount) // troubleshooting helper
+			Expect(errorCount).To(BeNumerically(">", 0))
+		}, 300)
+
 		It("should include the metrics for a running VM", func() {
 			By("Creating the VirtualMachineInstance")
 			vmi := tests.NewRandomVMI()
@@ -174,12 +236,7 @@ var _ = Describe("Infrastructure", func() {
 			Expect(metrics).To(HaveKey(ContainSubstring("kubevirt_vm_storage_")))
 
 			By("Checking the collected metrics")
-			var keys []string
-			for metric := range metrics {
-				keys = append(keys, metric)
-			}
-			// we sort keys only to make debug of test failures easier
-			sort.Strings(keys)
+			keys := getKeysFromMetrics(metrics)
 			for _, key := range keys {
 				if strings.HasPrefix(key, "kubevirt_vm_storage_") && strings.Contains(key, "vdb") {
 					value := metrics[key]
@@ -188,9 +245,9 @@ var _ = Describe("Infrastructure", func() {
 			}
 		}, 300)
 
-		It("should include the memory metrics for a running VM", func() {
+		It("should include the network metrics for a running VM", func() {
 			By("Creating the VirtualMachineInstance")
-			vmi := tests.NewRandomVMI()
+			vmi := tests.NewRandomVMIWithEphemeralDisk(tests.ContainerDiskFor(tests.ContainerDiskAlpine))
 
 			By("Starting a new VirtualMachineInstance")
 			obj, err := virtClient.RestClient().Post().Resource("virtualmachineinstances").Namespace(tests.NamespaceTestDefault).Body(vmi).Do().Get()
@@ -199,33 +256,56 @@ var _ = Describe("Infrastructure", func() {
 			By("Waiting until the VM is ready")
 			nodeName := tests.WaitForSuccessfulVMIStart(obj)
 
+			By("Expecting the VirtualMachineInstance console")
+			expecter, err := tests.LoggedInAlpineExpecter(vmi)
+
+			Expect(err).ToNot(HaveOccurred())
+			defer expecter.Close()
+
 			By("Finding the prometheus endpoint")
 			pod, err := kubecli.NewVirtHandlerClient(virtClient).ForNode(nodeName).Pod()
 			Expect(err).ToNot(HaveOccurred(), "Should find the virt-handler pod")
 
 			By("Scraping the Prometheus endpoint")
-			var metrics map[string]float64
-			Eventually(func() map[string]float64 {
-				out := getKubevirtVMMetrics(virtClient, pod, "virt-handler")
-				lines := takeMetricsWithPrefix(out, "kubevirt")
-				metrics, err := parseMetricsToMap(lines)
-				Expect(err).ToNot(HaveOccurred())
-				return metrics
-			}, 30*time.Second, 2*time.Second).Should(HaveKey(ContainSubstring("kubevirt_vm_memory_")))
+			// the VM *is* running, so we must have metrics promptly reported
+			out := getKubevirtVMMetrics(virtClient, pod, "virt-handler")
+			lines := takeMetricsWithPrefix(out, "kubevirt")
+			metrics, err := parseMetricsToMap(lines)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(metrics).To(HaveKey(ContainSubstring("kubevirt_vm_network_")))
 
 			By("Checking the collected metrics")
-			var keys []string
-			for metric := range metrics {
-				keys = append(keys, metric)
+			keys := getKeysFromMetrics(metrics)
+			for _, key := range keys {
+				if strings.HasPrefix(key, "kubevirt_vm_network_") {
+					value := metrics[key]
+					Expect(value).To(BeNumerically(">=", float64(0.0)))
+				}
 			}
-			// we sort keys only to make debug of test failures easier
-			sort.Strings(keys)
+		}, 300)
+
+		It("should include the memory metrics for a running VM", func() {
+			_, _, _, metrics := newRandomVMIWithMetrics(virtClient, "kubevirt_vm_memory_")
+			By("Checking the collected metrics")
+			keys := getKeysFromMetrics(metrics)
 			for _, key := range keys {
 				if strings.HasPrefix(key, "kubevirt_vm_metrics_") {
 					value := metrics[key]
 					// swap metrics may (and should) be actually zero
 					Expect(value).To(BeNumerically(">=", float64(0.0)))
 				}
+			}
+		}, 300)
+
+		It("should include VMI infos for a running VM", func() {
+			vmi, nodeName, _, metrics := newRandomVMIWithMetrics(virtClient, "kubevirt_vm_")
+			By("Checking the collected metrics")
+			keys := getKeysFromMetrics(metrics)
+			for _, key := range keys {
+				// we don't care about the ordering of the labels
+				Expect(key).To(ContainSubstring(fmt.Sprintf("node=%s", nodeName)))
+				Expect(key).To(ContainSubstring(fmt.Sprintf("namespace=%s", vmi.Namespace)))
+				Expect(key).To(ContainSubstring(fmt.Sprintf("name=%s", vmi.Name)))
 			}
 		}, 300)
 	})
@@ -344,4 +424,42 @@ func takeMetricsWithPrefix(output, prefix string) []string {
 		}
 	}
 	return ret
+}
+
+func newRandomVMIWithMetrics(virtClient kubecli.KubevirtClient, metricSubstring string) (*v1.VirtualMachineInstance, string, runtime.Object, map[string]float64) {
+	By("Creating the VirtualMachineInstance")
+	vmi := tests.NewRandomVMI()
+
+	By("Starting a new VirtualMachineInstance")
+	obj, err := virtClient.RestClient().Post().Resource("virtualmachineinstances").Namespace(tests.NamespaceTestDefault).Body(vmi).Do().Get()
+	Expect(err).ToNot(HaveOccurred(), "Should create VMI")
+
+	By("Waiting until the VM is ready")
+	nodeName := tests.WaitForSuccessfulVMIStart(obj)
+
+	By("Finding the prometheus endpoint")
+	pod, err := kubecli.NewVirtHandlerClient(virtClient).ForNode(nodeName).Pod()
+	Expect(err).ToNot(HaveOccurred(), "Should find the virt-handler pod")
+
+	By("Scraping the Prometheus endpoint")
+	var metrics map[string]float64
+	Eventually(func() map[string]float64 {
+		out := getKubevirtVMMetrics(virtClient, pod, "virt-handler")
+		lines := takeMetricsWithPrefix(out, "kubevirt")
+		metrics, err := parseMetricsToMap(lines)
+		Expect(err).ToNot(HaveOccurred())
+		return metrics
+	}, 30*time.Second, 2*time.Second).Should(HaveKey(ContainSubstring(metricSubstring)))
+
+	return vmi, nodeName, obj, metrics
+}
+
+func getKeysFromMetrics(metrics map[string]float64) []string {
+	var keys []string
+	for metric := range metrics {
+		keys = append(keys, metric)
+	}
+	// we sort keys only to make debug of test failures easier
+	sort.Strings(keys)
+	return keys
 }

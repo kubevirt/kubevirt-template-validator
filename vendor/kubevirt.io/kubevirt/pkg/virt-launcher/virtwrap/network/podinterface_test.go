@@ -31,10 +31,9 @@ import (
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
 	"github.com/vishvananda/netlink"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	v1 "kubevirt.io/kubevirt/pkg/api/v1"
-	"kubevirt.io/kubevirt/pkg/log"
+	v1 "kubevirt.io/client-go/api/v1"
+	"kubevirt.io/client-go/log"
 	"kubevirt.io/kubevirt/pkg/virt-launcher/virtwrap/api"
 )
 
@@ -144,8 +143,32 @@ var _ = Describe("Pod Network", func() {
 		mockNetwork.EXPECT().AddrAdd(bridgeTest, masqueradeGwAddr).Return(nil)
 		mockNetwork.EXPECT().StartDHCP(masqueradeTestNic, masqueradeGwAddr, api.DefaultBridgeName, nil)
 		mockNetwork.EXPECT().GetHostAndGwAddressesFromCIDR(api.DefaultVMCIDR).Return("10.0.2.1/30", "10.0.2.2/30", nil)
+		// Global nat rules
 		mockNetwork.EXPECT().IptablesNewChain("nat", gomock.Any()).Return(nil).AnyTimes()
-		mockNetwork.EXPECT().IptablesAppendRule("nat", gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+		mockNetwork.EXPECT().IptablesAppendRule("nat",
+			"POSTROUTING",
+			"-s",
+			"10.0.2.2",
+			"-j",
+			"MASQUERADE").Return(nil).AnyTimes()
+		mockNetwork.EXPECT().IptablesAppendRule("nat",
+			"PREROUTING",
+			"-i",
+			"eth0",
+			"-j",
+			"KUBEVIRT_PREINBOUND").Return(nil).AnyTimes()
+		mockNetwork.EXPECT().IptablesAppendRule("nat",
+			"POSTROUTING",
+			"-o",
+			"k6t-eth0",
+			"-j",
+			"KUBEVIRT_POSTINBOUND").Return(nil).AnyTimes()
+		mockNetwork.EXPECT().IptablesAppendRule("nat",
+			"KUBEVIRT_PREINBOUND",
+			"-j",
+			"DNAT",
+			"--to-destination",
+			"10.0.2.2").Return(nil).AnyTimes()
 
 		err := SetupPodNetwork(vm, domain)
 		Expect(err).To(BeNil())
@@ -361,9 +384,44 @@ var _ = Describe("Pod Network", func() {
 			})
 		})
 		Context("Masquerade Plug", func() {
-			It("should define a new VIF bind to a bridge", func() {
+			It("should define a new VIF bind to a bridge and create a default nat rule", func() {
+				// forward all the traffic
+				mockNetwork.EXPECT().IptablesAppendRule("nat",
+					"KUBEVIRT_PREINBOUND",
+					"-j",
+					"DNAT",
+					"--to-destination").Return(nil).AnyTimes()
+
 				domain := NewDomainWithBridgeInterface()
 				vm := newVMIMasqueradeInterface("testnamespace", "testVmName")
+
+				api.SetObjectDefaults_Domain(domain)
+				TestPodInterfaceIPBinding(vm, domain)
+			})
+			It("should define a new VIF bind to a bridge and create a specific nat rule", func() {
+				// Forward a specific port
+				mockNetwork.EXPECT().IptablesAppendRule("nat",
+					"KUBEVIRT_POSTINBOUND",
+					"-p",
+					"tcp",
+					"--dport",
+					"80", "-j", "SNAT", "--to-source", "10.0.2.1").Return(nil).AnyTimes()
+				mockNetwork.EXPECT().IptablesAppendRule("nat",
+					"KUBEVIRT_PREINBOUND",
+					"-p",
+					"tcp",
+					"--dport",
+					"80", "-j", "DNAT", "--to-destination", "10.0.2.2").Return(nil).AnyTimes()
+				mockNetwork.EXPECT().IptablesAppendRule("nat",
+					"OUTPUT",
+					"-p",
+					"tcp",
+					"--dport",
+					"80", "--destination", "127.0.0.1",
+					"-j", "DNAT", "--to-destination", "10.0.2.2").Return(nil).AnyTimes()
+				domain := NewDomainWithBridgeInterface()
+				vm := newVMIMasqueradeInterface("testnamespace", "testVmName")
+				vm.Spec.Domain.Devices.Interfaces[0].Ports = []v1.Port{{Name: "test", Port: 80, Protocol: "TCP"}}
 
 				api.SetObjectDefaults_Domain(domain)
 				TestPodInterfaceIPBinding(vm, domain)
@@ -431,23 +489,14 @@ var _ = Describe("Pod Network", func() {
 })
 
 func newVMI(namespace, name string) *v1.VirtualMachineInstance {
-	vmi := &v1.VirtualMachineInstance{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      name,
-			Namespace: namespace,
-		},
-		Spec: v1.VirtualMachineInstanceSpec{
-			Domain:   v1.NewMinimalDomainSpec(),
-			Networks: []v1.Network{*v1.DefaultPodNetwork()},
-		},
-	}
-
+	vmi := v1.NewMinimalVMIWithNS(namespace, name)
+	vmi.Spec.Networks = []v1.Network{*v1.DefaultPodNetwork()}
 	return vmi
 }
 
 func newVMIBridgeInterface(namespace string, name string) *v1.VirtualMachineInstance {
 	vmi := newVMI(namespace, name)
-	vmi.Spec.Domain.Devices.Interfaces = []v1.Interface{*v1.DefaultNetworkInterface()}
+	vmi.Spec.Domain.Devices.Interfaces = []v1.Interface{*v1.DefaultBridgeNetworkInterface()}
 	v1.SetObjectDefaults_VirtualMachineInstance(vmi)
 	return vmi
 }

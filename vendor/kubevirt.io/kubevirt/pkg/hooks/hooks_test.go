@@ -26,7 +26,7 @@ import (
 	. "github.com/onsi/gomega"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	v1 "kubevirt.io/kubevirt/pkg/api/v1"
+	v1 "kubevirt.io/client-go/api/v1"
 	"kubevirt.io/kubevirt/pkg/hooks"
 )
 
@@ -63,7 +63,7 @@ var _ = Describe("HooksAPI", func() {
 			}
 			hookSidecarList, err := hooks.UnmarshalHookSidecarList(vmiHookObject)
 			Expect(err).ToNot(HaveOccurred())
-			Expect(reflect.DeepEqual(hookSidecarList, expectedHookSidecarList)).To(Equal(true))
+			Expect(reflect.DeepEqual(hookSidecarList, expectedHookSidecarList)).To(BeTrue())
 		})
 	})
 })

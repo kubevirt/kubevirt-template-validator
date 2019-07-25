@@ -640,7 +640,7 @@ func (c *DataVolumeController) getPodMetricsPort(pod *corev1.Pod) (int, error) {
 			}
 		}
 	}
-	klog.Errorf("Unable to find metrics port on pod: %s", pod.Name)
+	klog.V(3).Infof("Unable to find metrics port on pod: %s", pod.Name)
 	return 0, errors.New("Metrics port not found in pod")
 }
 
@@ -786,11 +786,16 @@ func newPersistentVolumeClaim(dataVolume *cdiv1.DataVolume) (*corev1.PersistentV
 			annotations[AnnCertConfigMap] = dataVolume.Spec.Source.Registry.CertConfigMap
 		}
 	} else if dataVolume.Spec.Source.PVC != nil {
-		if dataVolume.Spec.Source.PVC.Namespace != "" {
-			annotations[AnnCloneRequest] = dataVolume.Spec.Source.PVC.Namespace + "/" + dataVolume.Spec.Source.PVC.Name
-		} else {
-			annotations[AnnCloneRequest] = dataVolume.Namespace + "/" + dataVolume.Spec.Source.PVC.Name
+		sourceNamespace := dataVolume.Spec.Source.PVC.Namespace
+		if sourceNamespace == "" {
+			sourceNamespace = dataVolume.Namespace
 		}
+		token, ok := dataVolume.Annotations[AnnCloneToken]
+		if !ok {
+			return nil, errors.Errorf("no clone token")
+		}
+		annotations[AnnCloneToken] = token
+		annotations[AnnCloneRequest] = sourceNamespace + "/" + dataVolume.Spec.Source.PVC.Name
 	} else if dataVolume.Spec.Source.Upload != nil {
 		annotations[AnnUploadRequest] = ""
 	} else if dataVolume.Spec.Source.Blank != nil {

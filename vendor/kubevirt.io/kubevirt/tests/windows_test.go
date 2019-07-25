@@ -20,8 +20,8 @@
 package tests_test
 
 import (
-	"flag"
 	"fmt"
+	"io/ioutil"
 	"net/http"
 	"os"
 	"strings"
@@ -35,8 +35,8 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/rand"
 
-	v1 "kubevirt.io/kubevirt/pkg/api/v1"
-	"kubevirt.io/kubevirt/pkg/kubecli"
+	v1 "kubevirt.io/client-go/api/v1"
+	"kubevirt.io/client-go/kubecli"
 	"kubevirt.io/kubevirt/pkg/testutils"
 	"kubevirt.io/kubevirt/pkg/util/net/dns"
 	"kubevirt.io/kubevirt/tests"
@@ -55,7 +55,7 @@ const (
 )
 
 var _ = Describe("Windows VirtualMachineInstance", func() {
-	flag.Parse()
+	tests.FlagParse()
 
 	virtClient, err := kubecli.GetKubevirtClient()
 	tests.PanicOnError(err)
@@ -146,7 +146,7 @@ var _ = Describe("Windows VirtualMachineInstance", func() {
 		Expect(err).To(BeNil())
 	}, 300)
 
-	Context("with winrm connection", func() {
+	Context("[ref_id:295]with winrm connection", func() {
 		var winrmcliPod *k8sv1.Pod
 		var cli []string
 		var output string
@@ -160,7 +160,7 @@ var _ = Describe("Windows VirtualMachineInstance", func() {
 					Containers: []k8sv1.Container{
 						{
 							Name:    winrmCli,
-							Image:   fmt.Sprintf("%s/%s:%s", tests.KubeVirtRepoPrefix, winrmCli, tests.KubeVirtVersionTag),
+							Image:   fmt.Sprintf("%s/%s:%s", tests.KubeVirtUtilityRepoPrefix, winrmCli, tests.KubeVirtUtilityVersionTag),
 							Command: []string{"sleep"},
 							Args:    []string{"3600"},
 						},
@@ -188,7 +188,7 @@ var _ = Describe("Windows VirtualMachineInstance", func() {
 			}
 		})
 
-		It("should have correct UUID", func() {
+		It("[test_id:240]should have correct UUID", func() {
 			command := append(cli, "wmic csproduct get \"UUID\"")
 			By(fmt.Sprintf("Running \"%s\" command via winrm-cli", command))
 			Eventually(func() error {
@@ -263,19 +263,23 @@ var _ = Describe("Windows VirtualMachineInstance", func() {
 		}, 360)
 	})
 
-	Context("with kubectl command", func() {
+	Context("[ref_id:222]with kubectl command", func() {
+		var workDir string
 		var yamlFile string
 		BeforeEach(func() {
 			tests.SkipIfNoCmd("kubectl")
-			yamlFile, err = tests.GenerateVMIJson(windowsVMI)
+			workDir, err = ioutil.TempDir("", tests.TempDirPrefix+"-")
+			Expect(err).ToNot(HaveOccurred())
+			yamlFile, err = tests.GenerateVMIJson(windowsVMI, workDir)
 			Expect(err).ToNot(HaveOccurred())
 		})
 
 		AfterEach(func() {
-			if yamlFile != "" {
-				err = os.Remove(yamlFile)
+			os.RemoveAll(workDir)
+			if workDir != "" {
+				err = os.RemoveAll(workDir)
 				Expect(err).ToNot(HaveOccurred())
-				yamlFile = ""
+				workDir = ""
 			}
 		})
 
@@ -287,7 +291,7 @@ var _ = Describe("Windows VirtualMachineInstance", func() {
 			tests.WaitForSuccessfulVMIStartWithTimeout(windowsVMI, 360)
 		})
 
-		It("should succeed to stop a vmi", func() {
+		It("[test_id:239]should succeed to stop a vmi", func() {
 			By("Starting the vmi via kubectl command")
 			_, _, err = tests.RunCommand("kubectl", "create", "-f", yamlFile)
 			Expect(err).ToNot(HaveOccurred())

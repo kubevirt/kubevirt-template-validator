@@ -189,10 +189,12 @@ container_bundle(
         "$(container_prefix)/alpine-container-disk-demo:$(container_tag)": "//cmd/container-disk-v1alpha:alpine-container-disk-image",
         "$(container_prefix)/cirros-container-disk-demo:$(container_tag)": "//cmd/container-disk-v1alpha:cirros-container-disk-image",
         "$(container_prefix)/fedora-cloud-container-disk-demo:$(container_tag)": "//cmd/container-disk-v1alpha:fedora-cloud-container-disk-image",
+        "$(container_prefix)/fedora30-cloud-container-disk-demo:$(container_tag)": "//cmd/container-disk-v1alpha:fedora30-cloud-container-disk-image",
         "$(container_prefix)/virtio-container-disk:$(container_tag)": "//cmd/container-disk-v1alpha:virtio-container-disk-image",
         # testing images
         "$(container_prefix)/disks-images-provider:$(container_tag)": "//images/disks-images-provider:disks-images-provider-image",
         "$(container_prefix)/cdi-http-import-server:$(container_tag)": "//images/cdi-http-import-server:cdi-http-import-server-image",
+        "$(container_prefix)/nfs-server:$(container_tag)": "//images/nfs-server:nfs-server-image",
         "$(container_prefix)/vm-killer:$(container_tag)": "//images/vm-killer:vm-killer-image",
         "$(container_prefix)/winrmcli:$(container_tag)": "//images/winrmcli:winrmcli-image",
     },

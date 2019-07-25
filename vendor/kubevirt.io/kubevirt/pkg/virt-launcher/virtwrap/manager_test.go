@@ -38,9 +38,9 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	v1 "kubevirt.io/kubevirt/pkg/api/v1"
+	v1 "kubevirt.io/client-go/api/v1"
+	"kubevirt.io/client-go/log"
 	cloudinit "kubevirt.io/kubevirt/pkg/cloud-init"
-	"kubevirt.io/kubevirt/pkg/log"
 	cmdclient "kubevirt.io/kubevirt/pkg/virt-handler/cmd-client"
 	"kubevirt.io/kubevirt/pkg/virt-launcher/virtwrap/api"
 	"kubevirt.io/kubevirt/pkg/virt-launcher/virtwrap/cli"
@@ -63,7 +63,7 @@ var _ = Describe("Manager", func() {
 	if err != nil {
 		panic(err)
 	}
-	isoCreationFunc := func(isoOutFile string, inFiles []string) error {
+	isoCreationFunc := func(isoOutFile, volumeID string, inDir string) error {
 		_, err := os.Create(isoOutFile)
 		return err
 	}
@@ -576,7 +576,8 @@ var _ = Describe("Manager", func() {
 		func(migrationType string) {
 			isBlockMigration := migrationType == "block"
 			isUnsafeMigration := migrationType == "unsafe"
-			flags := prepareMigrationFlags(isBlockMigration, isUnsafeMigration)
+			allowAutoConverge := migrationType == "autoConverge"
+			flags := prepareMigrationFlags(isBlockMigration, isUnsafeMigration, allowAutoConverge)
 			expectedMigrateFlags := libvirt.MIGRATE_LIVE | libvirt.MIGRATE_PEER2PEER
 
 			if isBlockMigration {
@@ -584,11 +585,15 @@ var _ = Describe("Manager", func() {
 			} else if migrationType == "unsafe" {
 				expectedMigrateFlags |= libvirt.MIGRATE_UNSAFE
 			}
+			if allowAutoConverge {
+				expectedMigrateFlags |= libvirt.MIGRATE_AUTO_CONVERGE
+			}
 			Expect(flags).To(Equal(expectedMigrateFlags))
 		},
 		table.Entry("with block migration", "block"),
 		table.Entry("without block migration", "live"),
 		table.Entry("unsafe migration", "unsafe"),
+		table.Entry("migration auto converge", "autoConverge"),
 	)
 
 	table.DescribeTable("on successful list all domains",
@@ -697,11 +702,8 @@ var _ = Describe("getSRIOVPCIAddresses", func() {
 	})
 })
 
-func newVMI(namespace string, name string) *v1.VirtualMachineInstance {
-	vmi := &v1.VirtualMachineInstance{
-		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: namespace},
-		Spec:       v1.VirtualMachineInstanceSpec{Domain: v1.NewMinimalDomainSpec()},
-	}
+func newVMI(namespace, name string) *v1.VirtualMachineInstance {
+	vmi := v1.NewMinimalVMIWithNS(namespace, name)
 	v1.SetObjectDefaults_VirtualMachineInstance(vmi)
 	return vmi
 }

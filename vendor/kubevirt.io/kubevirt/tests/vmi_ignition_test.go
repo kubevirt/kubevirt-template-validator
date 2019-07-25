@@ -20,22 +20,21 @@
 package tests_test
 
 import (
-	"flag"
 	"time"
 
 	expect "github.com/google/goexpect"
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
 
-	v1 "kubevirt.io/kubevirt/pkg/api/v1"
-	"kubevirt.io/kubevirt/pkg/kubecli"
-	"kubevirt.io/kubevirt/pkg/log"
+	v1 "kubevirt.io/client-go/api/v1"
+	"kubevirt.io/client-go/kubecli"
+	"kubevirt.io/client-go/log"
 	"kubevirt.io/kubevirt/tests"
 )
 
 var _ = Describe("[rfe_id:151][crit:high][vendor:cnv-qe@redhat.com][level:component]IgnitionData", func() {
 
-	flag.Parse()
+	tests.FlagParse()
 
 	virtClient, err := kubecli.GetKubevirtClient()
 	tests.PanicOnError(err)
@@ -65,6 +64,9 @@ var _ = Describe("[rfe_id:151][crit:high][vendor:cnv-qe@redhat.com][level:compon
 
 	BeforeEach(func() {
 		tests.BeforeTestCleanup()
+		if !tests.HasExperimentalIgnitionSupport() {
+			Skip("ExperimentalIgnitionSupport feature gate is not enabled in kubevirt-config")
+		}
 	})
 
 	Describe("[rfe_id:151][crit:medium][vendor:cnv-qe@redhat.com][level:component]A new VirtualMachineInstance", func() {

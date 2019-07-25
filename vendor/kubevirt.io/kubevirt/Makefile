@@ -56,38 +56,32 @@ functest:
 	hack/dockerized "hack/build-func-tests.sh"
 	hack/functests.sh
 
+functest-image-build:
+	hack/func-tests-image.sh build
+
+functest-image-push: functest-image-build
+	hack/func-tests-image.sh push
+
 clean:
 	hack/dockerized "./hack/build-go.sh clean ${WHAT} && rm _out/* -rf"
 	hack/dockerized "bazel clean --expunge"
 	rm -f tools/openapispec/openapispec tools/resource-generator/resource-generator tools/manifest-templator/manifest-templator tools/vms-generator/vms-generator tools/marketplace/marketplace
 
 distclean: clean
-	hack/dockerized "rm -rf vendor/ && rm -f .glide.*.hash && glide cc"
+	hack/dockerized "rm -rf vendor/ && rm -f go.sum && GO111MODULE=on go clean -modcache"
 	rm -rf vendor/
 
-deps-install:
-	SYNC_VENDOR=true hack/dockerized "glide install --strip-vendor && hack/dep-prune.sh && ./hack/bazel-generate.sh"
-
 deps-update:
-	SYNC_VENDOR=true hack/dockerized "glide cc && glide update --strip-vendor && hack/dep-prune.sh && ./hack/bazel-generate.sh"
+	SYNC_VENDOR=true hack/dockerized "GO111MODULE=on go mod tidy && GO111MODULE=on go mod vendor && ./hack/dep-prune.sh && ./hack/bazel-generate.sh"
 
-check:
-	hack/dockerized "./hack/check.sh"
+builder-cache-push:
+	hack/builder-cache.sh push
 
-docker: build
-	hack/build-docker.sh build ${WHAT}
+builder-cache-pull:
+	hack/builder-cache.sh pull
 
-push-cache: docker verify-build
-	hack/build-docker.sh push-cache ${WHAT}
-
-pull-cache:
-	hack/build-docker.sh pull-cache ${WHAT}
-
-publish: docker verify-build
-	hack/build-docker.sh push ${WHAT}
-
-verify-build:
-	hack/verify-build.sh
+build-verify:
+	hack/build-verify.sh
 
 manifests:
 	hack/dockerized "CSV_VERSION=${CSV_VERSION} QUAY_REPOSITORY=${QUAY_REPOSITORY} \
@@ -101,19 +95,19 @@ release-announce: .release-functest
 	./hack/release-announce.sh $(RELREF) $(PREREF)
 
 cluster-up:
-	./cluster/up.sh
+	./cluster-up/up.sh
 
 cluster-down:
-	./cluster/down.sh
+	./cluster-up/down.sh
 
 cluster-build:
-	./cluster/build.sh
+	./hack/cluster-build.sh
 
 cluster-clean:
-	./cluster/clean.sh
+	./hack/cluster-clean.sh
 
 cluster-deploy: cluster-clean
-	./cluster/deploy.sh
+	./hack/cluster-deploy.sh
 
 cluster-sync: cluster-build cluster-deploy
 
@@ -131,6 +125,7 @@ olm-push:
 	    QUAY_PASSWORD=${QUAY_PASSWORD} QUAY_REPOSITORY=${QUAY_REPOSITORY} PACKAGE_NAME=${PACKAGE_NAME} ./hack/olm.sh push"
 
 .PHONY: \
+	build-verify \
 	go-build \
 	go-test \
 	go-all \
@@ -139,15 +134,13 @@ olm-push:
 	bazel-build-images \
 	bazel-push-images \
 	bazel-tests \
-	build \
+	functest-image-build \
+	functest-image-push \
 	test \
 	clean \
 	distclean \
-	checksync \
 	sync \
-	docker \
 	manifests \
-	publish \
 	functest \
 	release-announce \
 	cluster-up \

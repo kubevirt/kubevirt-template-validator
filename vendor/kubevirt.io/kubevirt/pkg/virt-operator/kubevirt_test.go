@@ -20,7 +20,6 @@
 package virt_operator
 
 import (
-	"encoding/json"
 	"fmt"
 	"os"
 	"time"
@@ -48,11 +47,11 @@ import (
 	framework "k8s.io/client-go/tools/cache/testing"
 	"k8s.io/client-go/tools/record"
 
-	v1 "kubevirt.io/kubevirt/pkg/api/v1"
-	"kubevirt.io/kubevirt/pkg/kubecli"
-	"kubevirt.io/kubevirt/pkg/log"
+	v1 "kubevirt.io/client-go/api/v1"
+	"kubevirt.io/client-go/kubecli"
+	"kubevirt.io/client-go/log"
+	"kubevirt.io/client-go/version"
 	"kubevirt.io/kubevirt/pkg/testutils"
-	"kubevirt.io/kubevirt/pkg/version"
 	"kubevirt.io/kubevirt/pkg/virt-operator/creation/components"
 	"kubevirt.io/kubevirt/pkg/virt-operator/creation/rbac"
 	installstrategy "kubevirt.io/kubevirt/pkg/virt-operator/install-strategy"
@@ -219,7 +218,7 @@ var _ = Describe("KubeVirt Operator", func() {
 		informers.InfrastructurePod, infrastructurePodSource = testutils.NewFakeInformerFor(&k8sv1.Pod{})
 		stores.InfrastructurePodCache = informers.InfrastructurePod.GetStore()
 
-		controller = NewKubeVirtController(virtClient, kvInformer, recorder, stores, informers)
+		controller = NewKubeVirtController(virtClient, kvInformer, recorder, stores, informers, NAMESPACE)
 
 		// Wrap our workqueue to have a way to detect when we are done processing updates
 		mockQueue = testutils.NewMockWorkQueue(controller.queue)
@@ -419,7 +418,7 @@ var _ = Describe("KubeVirt Operator", func() {
 
 	addInstallStrategy := func(imageTag string, imageRegistry string) {
 		// install strategy config
-		resource, _ := installstrategy.NewInstallStrategyConfigMap(NAMESPACE, imageTag, imageRegistry)
+		resource, _ := installstrategy.NewInstallStrategyConfigMap(NAMESPACE, imageTag, imageRegistry, "IfNotPresent")
 
 		resource.Name = fmt.Sprintf("%s-%s", resource.Name, rand.String(10))
 		addResource(resource, imageTag, imageRegistry)
@@ -847,15 +846,13 @@ var _ = Describe("KubeVirt Operator", func() {
 		}
 		return true, nil, nil
 	}
-	expectUsers := func(userBytes []byte, count int) {
-
-		type _users struct {
-			Users []string `json:"users"`
-		}
-		users := &_users{}
-
-		json.Unmarshal(userBytes, users)
-		ExpectWithOffset(2, len(users.Users)).To(Equal(count))
+	expectUsersDeleted := func(userBytes []byte) {
+		deletePatch := `[ { "op": "test", "path": "/users", "value": ["someUser","system:serviceaccount:kubevirt-test:kubevirt-handler","system:serviceaccount:kubevirt-test:kubevirt-apiserver","system:serviceaccount:kubevirt-test:kubevirt-controller"] }, { "op": "replace", "path": "/users", "value": ["someUser"] } ]`
+		Expect(userBytes).To(Equal([]byte(deletePatch)))
+	}
+	expectUsersAdded := func(userBytes []byte) {
+		addPatch := `[ { "op": "test", "path": "/users", "value": ["someUser"] }, { "op": "replace", "path": "/users", "value": ["someUser","system:serviceaccount:kubevirt-test:kubevirt-handler","system:serviceaccount:kubevirt-test:kubevirt-apiserver","system:serviceaccount:kubevirt-test:kubevirt-controller"] } ]`
+		Expect(userBytes).To(Equal([]byte(addPatch)))
 	}
 
 	shouldExpectInstallStrategyDeletion := func() {
@@ -882,7 +879,7 @@ var _ = Describe("KubeVirt Operator", func() {
 
 		secClient.Fake.PrependReactor("patch", "securitycontextconstraints", func(action testing.Action) (handled bool, obj runtime.Object, err error) {
 			patch, _ := action.(testing.PatchAction)
-			expectUsers(patch.GetPatch(), 1)
+			expectUsersDeleted(patch.GetPatch())
 			return true, nil, nil
 		})
 		extClient.Fake.PrependReactor("delete", "customresourcedefinitions", genericDeleteFunc)
@@ -930,7 +927,7 @@ var _ = Describe("KubeVirt Operator", func() {
 
 		secClient.Fake.PrependReactor("patch", "securitycontextconstraints", func(action testing.Action) (handled bool, obj runtime.Object, err error) {
 			patch, _ := action.(testing.PatchAction)
-			expectUsers(patch.GetPatch(), 4)
+			expectUsersAdded(patch.GetPatch())
 			return true, nil, nil
 		})
 		extClient.Fake.PrependReactor("create", "customresourcedefinitions", genericCreateFunc)

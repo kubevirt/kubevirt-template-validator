@@ -125,6 +125,13 @@ func (dp *DataProcessor) ProcessData() error {
 		// Attempt to be a good citizen and clean up my mess at the end.
 		defer CleanDir(dp.scratchDataDir)
 	}
+	if util.GetAvailableSpace(dp.dataDir) > int64(0) {
+		// Clean up data dir before trying to write in case a previous attempt failed and left some stuff behind.
+		err = CleanDir(dp.dataDir)
+		if err != nil {
+			return err
+		}
+	}
 	for dp.currentPhase != ProcessingPhaseComplete {
 		switch dp.currentPhase {
 		case ProcessingPhaseInfo:
@@ -139,10 +146,8 @@ func (dp *DataProcessor) ProcessData() error {
 			dp.currentPhase, err = dp.source.Transfer(dp.dataDir)
 		case ProcessingPhaseTransferDataFile:
 			dp.currentPhase, err = dp.source.TransferFile(dp.dataFile)
-			if err == nil {
-				// dataFile is a known good url, so we know parse will never fail.
-				url, _ := url.Parse(dp.dataFile)
-				err = dp.validate(url)
+			if err != nil {
+				err = errors.Wrap(err, "Unable to transfer source data to target file")
 			}
 		case ProcessingPhaseProcess:
 			dp.currentPhase, err = dp.source.Process()

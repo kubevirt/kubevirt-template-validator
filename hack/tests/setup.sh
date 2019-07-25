@@ -6,7 +6,7 @@ BASEPATH=$( dirname $SELF )
 ENVPATH="${BASEPATH}/../env"
 
 ${ENVPATH}/minishift/setup.sh
-sleep 40s
+sleep 50s
 
 ${ENVPATH}/try-login.sh
 sleep 10s

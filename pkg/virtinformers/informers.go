@@ -45,6 +45,10 @@ type Informers struct {
 	TemplateInformer cache.SharedIndexInformer
 }
 
+func (inf *Informers) Available() bool {
+	return inf != nil && inf.TemplateInformer != nil
+}
+
 func GetInformers() *Informers {
 	once.Do(func() {
 		pkgInformers = newInformers()

@@ -61,7 +61,7 @@ func getTemplateKey(vm *k6tv1.VirtualMachine) (string, bool) {
 func getParentTemplateForVM(vm *k6tv1.VirtualMachine) (*templatev1.Template, error) {
 	informers := virtinformers.GetInformers()
 
-	if informers == nil || informers.TemplateInformer == nil {
+	if !informers.Available() {
 		log.Log.V(8).Infof("no informer available (deployed on K8S?)")
 		return nil, nil
 	}

@@ -2,8 +2,9 @@ package k8sutils
 
 import (
 	"k8s.io/client-go/util/cert"
-	"k8s.io/client-go/util/cert/triple"
 	"k8s.io/client-go/util/certificate"
+
+	"github.com/fromanirh/kubevirt-template-validator/internal/pkg/util/cert/triple"
 )
 
 func GenerateSelfSignedCert(certsDirectory string, name string, namespace string) (certificate.FileStore, error) {

@@ -30,7 +30,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/go-kit/kit/log"
+	gokitlog "github.com/go-kit/kit/log"
 	"github.com/golang/glog"
 	flag "github.com/spf13/pflag"
 )
@@ -52,7 +52,7 @@ var LogLevelNames = map[LogLevel]string{
 }
 
 type FilteredLogger struct {
-	logContext            *log.Context
+	logContext            *gokitlog.Context
 	component             string
 	filterLevel           LogLevel
 	currentLogLevel       LogLevel
@@ -83,7 +83,7 @@ func getDefaultVerbosity() int {
 }
 
 // Wrap a go-kit logger in a FilteredLogger. Not cached
-func MakeLogger(logger log.Logger) *FilteredLogger {
+func MakeLogger(logger gokitlog.Logger) *FilteredLogger {
 	defaultLogLevel := INFO
 
 	defaultVerbosity = getDefaultVerbosity()
@@ -91,7 +91,7 @@ func MakeLogger(logger log.Logger) *FilteredLogger {
 	defaultCurrentVerbosity := 2
 
 	return &FilteredLogger{
-		logContext:            log.NewContext(logger),
+		logContext:            gokitlog.NewContext(logger),
 		component:             defaultComponent,
 		filterLevel:           defaultLogLevel,
 		currentLogLevel:       defaultLogLevel,
@@ -111,10 +111,10 @@ func createLogger(component string) {
 	defer lock.Unlock()
 	_, ok := loggers[component]
 	if ok == false {
-		logger := log.NewJSONLogger(os.Stderr)
-		log := MakeLogger(logger)
-		log.component = component
-		loggers[component] = log
+		logger := gokitlog.NewJSONLogger(os.Stderr)
+		logInst := MakeLogger(logger)
+		logInst.component = component
+		loggers[component] = logInst
 	}
 }
 
@@ -130,8 +130,8 @@ func DefaultLogger() *FilteredLogger {
 	return Logger(defaultComponent)
 }
 
-func (l *FilteredLogger) SetLogger(logger log.Logger) *FilteredLogger {
-	l.logContext = log.NewContext(logger)
+func (l *FilteredLogger) SetLogger(logger gokitlog.Logger) *FilteredLogger {
+	l.logContext = gokitlog.NewContext(logger)
 	return l
 }
 

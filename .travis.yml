@@ -49,10 +49,13 @@ before_script:
 - bash -x ci/prepare-host $CPLATFORM
 - bash -x ci/prepare-host virtctl
 - bash -x ci/start-cluster $CPLATFORM $CVER
-- bash -x ci/deploy-kubevirt $CPLATFORM
+- bash -x ci/deploy-kubevirt $CPLATFORM v0.18.1
 
 - bash -x hack/env/build-validator.sh
 - bash -x hack/env/install-validator.sh
 
 script:
+- bash -x test.sh
+- bash -x hack/env/upgrade-kubevirt.sh v0.19.0
+- bash -x hack/env/wait-kubevirt.sh
 - bash -x test.sh

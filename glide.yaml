@@ -27,35 +27,32 @@ import:
   version: kubernetes-1.13.4
 - package: k8s.io/api
   version: kubernetes-1.13.4
+- package: kubevirt.io/containerized-data-importer
+  repo:    https://github.com/kubevirt/containerized-data-importer.git
+  version: 1.9.5
 - package: github.com/openshift/client-go
   version: rebase-1.13.4
 - package: github.com/spf13/pflag
   version: 1.0.1
-- package: kubevirt.io/containerized-data-importer
-  repo:    https://github.com/kubevirt/containerized-data-importer.git
-  version: 1.9.5
 - package: kubevirt.io/client-go
   repo: https://github.com/kubevirt/client-go.git
-  version: 0.19.0
-- package: kubevirt.io/kubevirt
-  repo: https://github.com/kubevirt/kubevirt.git
   version: 0.19.0
 - package: github.com/gorilla/websocket
   version: 0647012449a1878977514a346b26637dd022446c
 - package: github.com/go-openapi/spec
-  version: v0.17.0
+  version: v0.17.2
 - package: github.com/go-openapi/validate
-  version: v0.17.0
+  version: v0.17.2
 - package: github.com/go-openapi/errors
-  version: v0.17.0
+  version: v0.17.2
 - package: github.com/go-openapi/analysis
-  version: v0.17.0
+  version: v0.17.2
 - package: github.com/go-openapi/strfmt
-  version: v0.17.0
+  version: v0.17.2
 - package: github.com/go-openapi/loads
-  version: v0.17.0
+  version: v0.17.2
 - package: github.com/go-openapi/runtime
-  version: v0.17.0
+  version: v0.17.2
 - package: github.com/davecgh/go-spew
   version: 1.1.1
 - package: github.com/onsi/gomega/

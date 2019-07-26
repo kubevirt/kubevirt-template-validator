@@ -1,5 +1,5 @@
-hash: 388ee6c66778ea976db5bc5af0ea58cdc826bf621fa13db7f7840146a4babeeb
-updated: 2019-07-25T13:31:44.596281655+02:00
+hash: f9dceaf57434d77a9f8037f7ec6240ca906656c19b47ed5ba5ccdc190717c67d
+updated: 2019-07-26T09:29:24.153299841+02:00
 imports:
 - name: github.com/davecgh/go-spew
   version: 8991bc29aa16c548c550c7ff78260e27b9ab7c73
@@ -34,7 +34,7 @@ imports:
 - name: github.com/go-openapi/spec
   version: 5bae59e25b21498baea7f9d46e9c147ec106a42e
 - name: github.com/go-openapi/strfmt
-  version: 35fe47352985e13cc75f13120d70d26fd764ed51
+  version: edab9990ffc9b4a428f3306ecf4d18a069ca3317
 - name: github.com/go-openapi/swag
   version: 1d0bd113de87027671077d3c71eb3ac5d7dbba72
 - name: github.com/go-openapi/validate
@@ -427,9 +427,6 @@ imports:
   - pkg/client/clientset/versioned/scheme
   - pkg/client/clientset/versioned/typed/core/v1alpha1
   - pkg/client/clientset/versioned/typed/upload/v1alpha1
-- name: kubevirt.io/kubevirt
-  version: b54712d720ae7bde6400cd3bb81087f2694b2a40
-  repo: https://github.com/kubevirt/kubevirt.git
 - name: sigs.k8s.io/yaml
   version: fd68e9863619f6ec2fdd8625fe1f02e7c877e480
 testImports:

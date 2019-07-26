@@ -1,6 +1,7 @@
 package controller
 
 import (
+	"crypto/rsa"
 	"crypto/x509"
 	"fmt"
 	"net/http"
@@ -20,6 +21,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/kubernetes"
 	corelisters "k8s.io/client-go/listers/core/v1"
+	"k8s.io/client-go/util/cert"
 	"k8s.io/client-go/util/cert/triple"
 	"k8s.io/klog"
 	cdiv1 "kubevirt.io/containerized-data-importer/pkg/apis/core/v1alpha1"
@@ -27,6 +29,7 @@ import (
 	"kubevirt.io/containerized-data-importer/pkg/common"
 	"kubevirt.io/containerized-data-importer/pkg/keys"
 	"kubevirt.io/containerized-data-importer/pkg/operator"
+	"kubevirt.io/containerized-data-importer/pkg/token"
 	"kubevirt.io/containerized-data-importer/pkg/util"
 )
 
@@ -559,7 +562,7 @@ func addToMap(m1, m2 map[string]string) map[string]string {
 }
 
 // returns the CloneRequest string which contains the pvc name (and namespace) from which we want to clone the image.
-func getCloneRequestPVC(pvc *v1.PersistentVolumeClaim) (string, error) {
+func getCloneRequestPVCAnnotation(pvc *v1.PersistentVolumeClaim) (string, error) {
 	cr, found := pvc.Annotations[AnnCloneRequest]
 	if !found || cr == "" {
 		verb := "empty"
@@ -571,7 +574,21 @@ func getCloneRequestPVC(pvc *v1.PersistentVolumeClaim) (string, error) {
 	return cr, nil
 }
 
-// ParseSourcePvcAnnotation parses out the annotations for a CDI PVC
+// returns the CloneRequest string which contains the pvc name (and namespace) from which we want to clone the image.
+func getCloneRequestSourcePVC(pvc *v1.PersistentVolumeClaim, pvcLister corelisters.PersistentVolumeClaimLister) (*v1.PersistentVolumeClaim, error) {
+	ann, err := getCloneRequestPVCAnnotation(pvc)
+	if err != nil {
+		return nil, err
+	}
+	namespace, name := ParseSourcePvcAnnotation(ann, "/")
+	if namespace == "" || name == "" {
+		return nil, errors.New("Unable to parse to source PVC annotation")
+	}
+	return pvcLister.PersistentVolumeClaims(namespace).Get(name)
+
+}
+
+// ParseSourcePvcAnnotation parses out the annotations for a CDI PVC, splitting the string based on the delimiter argument
 func ParseSourcePvcAnnotation(sourcePvcAnno, del string) (namespace, name string) {
 	strArr := strings.Split(sourcePvcAnno, del)
 	if strArr == nil || len(strArr) < 2 {
@@ -579,6 +596,72 @@ func ParseSourcePvcAnnotation(sourcePvcAnno, del string) (namespace, name string
 		return "", ""
 	}
 	return strArr[0], strArr[1]
+}
+
+// ValidateCanCloneSourceAndTargetSpec validates the specs passed in are compatible for cloning.
+func ValidateCanCloneSourceAndTargetSpec(sourceSpec, targetSpec *v1.PersistentVolumeClaimSpec) error {
+	sourceRequest := sourceSpec.Resources.Requests[v1.ResourceStorage]
+	targetRequest := targetSpec.Resources.Requests[v1.ResourceStorage]
+	// Verify that the target PVC size is equal or larger than the source.
+	if sourceRequest.Value() > targetRequest.Value() {
+		return errors.New("Target resources requests storage size is smaller than the source")
+	}
+	// Verify that the source and target volume modes are the same.
+	sourceVolumeMode := v1.PersistentVolumeFilesystem
+	if sourceSpec.VolumeMode != nil && *sourceSpec.VolumeMode == v1.PersistentVolumeBlock {
+		sourceVolumeMode = v1.PersistentVolumeBlock
+	}
+	targetVolumeMode := v1.PersistentVolumeFilesystem
+	if targetSpec.VolumeMode != nil && *targetSpec.VolumeMode == v1.PersistentVolumeBlock {
+		targetVolumeMode = v1.PersistentVolumeBlock
+	}
+	if sourceVolumeMode != targetVolumeMode {
+		return errors.New("Source and target volume modes do not match")
+	}
+	// Can clone.
+	return nil
+}
+
+func validateCloneToken(validator token.Validator, source, target *v1.PersistentVolumeClaim) error {
+	tok, ok := target.Annotations[AnnCloneToken]
+	if !ok {
+		return errors.New("clone token missing")
+	}
+
+	tokenData, err := validator.Validate(tok)
+	if err != nil {
+		return errors.Wrap(err, "error verifying token")
+	}
+
+	if tokenData.Operation != token.OperationClone ||
+		tokenData.Name != source.Name ||
+		tokenData.Namespace != source.Namespace ||
+		tokenData.Resource.Resource != "persistentvolumeclaims" ||
+		tokenData.Params["targetNamespace"] != target.Namespace ||
+		tokenData.Params["targetName"] != target.Name {
+		return errors.New("invalid token")
+	}
+
+	return nil
+}
+
+// DecodePublicKey turns a bunch of bytes into a public key
+func DecodePublicKey(keyBytes []byte) (*rsa.PublicKey, error) {
+	keys, err := cert.ParsePublicKeysPEM(keyBytes)
+	if err != nil {
+		return nil, err
+	}
+
+	if len(keys) != 1 {
+		return nil, errors.New("unexected number of pulic keys")
+	}
+
+	key, ok := keys[0].(*rsa.PublicKey)
+	if !ok {
+		return nil, errors.New("PEM does not contain RSA key")
+	}
+
+	return key, nil
 }
 
 // CreateCloneSourcePod creates our cloning src pod which will be used for out of band cloning to read the contents of the src PVC
@@ -634,33 +717,23 @@ func MakeCloneSourcePodSpec(image, pullPolicy, sourcePvcName string, pvc *v1.Per
 			},
 		},
 		Spec: v1.PodSpec{
+			SecurityContext: &v1.PodSecurityContext{
+				RunAsUser: &[]int64{0}[0],
+				SELinuxOptions: &v1.SELinuxOptions{
+					Type: "spc_t",
+				},
+			},
 			Containers: []v1.Container{
 				{
 					Name:            common.ClonerSourcePodName,
 					Image:           image,
 					ImagePullPolicy: v1.PullPolicy(pullPolicy),
-					SecurityContext: &v1.SecurityContext{
-						Privileged: &[]bool{true}[0],
-						RunAsUser:  &[]int64{0}[0],
-					},
-
-					VolumeMounts: []v1.VolumeMount{
-						{
-							Name:      ImagePathName,
-							MountPath: common.ClonerImagePath,
-						},
-						{
-							Name:      socketPathName,
-							MountPath: common.ClonerSocketPath + "/" + id,
-						},
-					},
-					Args: []string{"source", id},
 				},
 			},
 			RestartPolicy: v1.RestartPolicyNever,
 			Volumes: []v1.Volume{
 				{
-					Name: ImagePathName,
+					Name: DataVolName,
 					VolumeSource: v1.VolumeSource{
 						PersistentVolumeClaim: &v1.PersistentVolumeClaimVolumeSource{
 							ClaimName: sourcePvcName,
@@ -679,7 +752,52 @@ func MakeCloneSourcePodSpec(image, pullPolicy, sourcePvcName string, pvc *v1.Per
 			},
 		},
 	}
+
+	var volumeMode v1.PersistentVolumeMode
+	if pvc.Spec.VolumeMode != nil {
+		volumeMode = *pvc.Spec.VolumeMode
+	} else {
+		volumeMode = v1.PersistentVolumeFilesystem
+	}
+	if volumeMode == v1.PersistentVolumeBlock {
+		pod.Spec.Containers[0].VolumeDevices = addVolumeDevices()
+		pod.Spec.Containers[0].VolumeMounts = addCloneVolumeMounts("Block", id)
+		pod.Spec.Containers[0].Args = addArgs("source", id, "block")
+	} else {
+		pod.Spec.Containers[0].VolumeMounts = addCloneVolumeMounts("FS", id)
+		pod.Spec.Containers[0].Args = addArgs("source", id, "FS")
+	}
 	return pod
+}
+
+func addArgs(source, id, volumeMode string) []string {
+	args := []string{
+		source, id, volumeMode,
+	}
+	return args
+}
+
+func addCloneVolumeMounts(volumeMode, id string) []v1.VolumeMount {
+	if volumeMode == "Block" {
+		volumeMounts := []v1.VolumeMount{
+			{
+				Name:      socketPathName,
+				MountPath: common.ClonerSocketPath + "/" + id,
+			},
+		}
+		return volumeMounts
+	}
+	volumeMounts := []v1.VolumeMount{
+		{
+			Name:      DataVolName,
+			MountPath: common.ClonerImagePath,
+		},
+		{
+			Name:      socketPathName,
+			MountPath: common.ClonerSocketPath + "/" + id,
+		},
+	}
+	return volumeMounts
 }
 
 // CreateCloneTargetPod creates our cloning tgt pod which will be used for out of band cloning to write the contents of the tgt PVC
@@ -757,27 +875,17 @@ func MakeCloneTargetPodSpec(image, pullPolicy, podAffinityNamespace string, pvc 
 					},
 				},
 			},
+			SecurityContext: &v1.PodSecurityContext{
+				RunAsUser: &[]int64{0}[0],
+				SELinuxOptions: &v1.SELinuxOptions{
+					Type: "spc_t",
+				},
+			},
 			Containers: []v1.Container{
 				{
 					Name:            common.ClonerTargetPodName,
 					Image:           image,
 					ImagePullPolicy: v1.PullPolicy(pullPolicy),
-					SecurityContext: &v1.SecurityContext{
-						Privileged: &[]bool{true}[0],
-						RunAsUser:  &[]int64{0}[0],
-					},
-
-					VolumeMounts: []v1.VolumeMount{
-						{
-							Name:      ImagePathName,
-							MountPath: common.ClonerImagePath,
-						},
-						{
-							Name:      socketPathName,
-							MountPath: common.ClonerSocketPath + "/" + id,
-						},
-					},
-					Args: []string{"target", id},
 					Ports: []v1.ContainerPort{
 						{
 							Name:          "metrics",
@@ -796,7 +904,7 @@ func MakeCloneTargetPodSpec(image, pullPolicy, podAffinityNamespace string, pvc 
 			RestartPolicy: v1.RestartPolicyNever,
 			Volumes: []v1.Volume{
 				{
-					Name: ImagePathName,
+					Name: DataVolName,
 					VolumeSource: v1.VolumeSource{
 						PersistentVolumeClaim: &v1.PersistentVolumeClaimVolumeSource{
 							ClaimName: pvc.Name,
@@ -814,6 +922,20 @@ func MakeCloneTargetPodSpec(image, pullPolicy, podAffinityNamespace string, pvc 
 				},
 			},
 		},
+	}
+	var volumeMode v1.PersistentVolumeMode
+	if pvc.Spec.VolumeMode != nil {
+		volumeMode = *pvc.Spec.VolumeMode
+	} else {
+		volumeMode = v1.PersistentVolumeFilesystem
+	}
+	if volumeMode == v1.PersistentVolumeBlock {
+		pod.Spec.Containers[0].VolumeDevices = addVolumeDevices()
+		pod.Spec.Containers[0].VolumeMounts = addCloneVolumeMounts("Block", id)
+		pod.Spec.Containers[0].Args = addArgs("target", id, "block")
+	} else {
+		pod.Spec.Containers[0].VolumeMounts = addCloneVolumeMounts("FS", id)
+		pod.Spec.Containers[0].Args = addArgs("target", id, "FS")
 	}
 	return pod
 }
@@ -856,7 +978,6 @@ func CreateUploadPod(client kubernetes.Interface,
 	}
 
 	klog.V(1).Infof("upload pod \"%s/%s\" (image: %q) created\n", pod.Namespace, pod.Name, image)
-
 	return pod, nil
 }
 
@@ -916,16 +1037,6 @@ func MakeUploadPodSpec(image, verbose, pullPolicy, name string, pvc *v1.Persiste
 					Name:            common.UploadServerPodname,
 					Image:           image,
 					ImagePullPolicy: v1.PullPolicy(pullPolicy),
-					VolumeMounts: []v1.VolumeMount{
-						{
-							Name:      DataVolName,
-							MountPath: common.UploadServerDataDir,
-						},
-						{
-							Name:      ScratchVolName,
-							MountPath: common.ScratchDataDir,
-						},
-					},
 					Env: []v1.EnvVar{
 						{
 							Name: "TLS_KEY",
@@ -1004,7 +1115,42 @@ func MakeUploadPodSpec(image, verbose, pullPolicy, name string, pvc *v1.Persiste
 			},
 		},
 	}
+	if getVolumeMode(pvc) == v1.PersistentVolumeBlock {
+		pod.Spec.Containers[0].VolumeDevices = addVolumeDevicesForUpload()
+		pod.Spec.Containers[0].Env = append(pod.Spec.Containers[0].Env, v1.EnvVar{
+			Name:  "DESTINATION",
+			Value: "/dev/blockDevice",
+		})
+
+	} else {
+		pod.Spec.Containers[0].VolumeMounts = addVolumeMountsForUpload()
+	}
+
+	pod.Spec.Containers[0].VolumeMounts = append(pod.Spec.Containers[0].VolumeMounts, v1.VolumeMount{
+		Name:      ScratchVolName,
+		MountPath: common.ScratchDataDir,
+	})
 	return pod
+}
+
+func addVolumeDevicesForUpload() []v1.VolumeDevice {
+	volumeDevices := []v1.VolumeDevice{
+		{
+			Name:       DataVolName,
+			DevicePath: common.ImporterWriteBlockPath,
+		},
+	}
+	return volumeDevices
+}
+
+func addVolumeMountsForUpload() []v1.VolumeMount {
+	volumeMounts := []v1.VolumeMount{
+		{
+			Name:      DataVolName,
+			MountPath: common.UploadServerDataDir,
+		},
+	}
+	return volumeMounts
 }
 
 // CreateUploadService creates upload service service manifest and sends to server
@@ -1223,6 +1369,7 @@ func getURLFromRoute(route *routev1.Route, uploadProxyServiceName string) string
 
 //IsOpenshift checks if we are on OpenShift platform
 func IsOpenshift(client kubernetes.Interface) bool {
+	//OpenShift 3.X check
 	result := client.Discovery().RESTClient().Get().AbsPath("/oapi/v1").Do()
 	var statusCode int
 	result.StatusCode(&statusCode)
@@ -1233,11 +1380,19 @@ func IsOpenshift(client kubernetes.Interface) bool {
 			return true
 		}
 	} else {
-		// Got 404 so this is not Openshift
-		if statusCode == http.StatusNotFound {
-			return false
+		// Got 404 so this is not Openshift 3.X, let's check OpenShift 4
+		result = client.Discovery().RESTClient().Get().AbsPath("/apis/route.openshift.io").Do()
+		var statusCode int
+		result.StatusCode(&statusCode)
+
+		if result.Error() == nil {
+			// It is OpenShift
+			if statusCode == http.StatusOK {
+				return true
+			}
 		}
 	}
+
 	return false
 }
 
@@ -1261,17 +1416,22 @@ func isInsecureTLS(client kubernetes.Interface, pvc *v1.PersistentVolumeClaim) (
 		return false, nil
 	}
 
+	klog.V(3).Infof("Checking configmap %s for host %s", configMapName, url.Host)
+
 	cm, err := client.CoreV1().ConfigMaps(util.GetNamespace()).Get(configMapName, metav1.GetOptions{})
 	if err != nil {
 		if k8serrors.IsNotFound(err) {
+			klog.Warningf("Configmap %s does not exist", configMapName)
 			return false, nil
 		}
 
 		return false, err
 	}
 
-	for host := range cm.Data {
-		if host == url.Host {
+	for key, value := range cm.Data {
+		klog.V(3).Infof("Checking %q against %q: %q", url.Host, key, value)
+
+		if value == url.Host {
 			return true, nil
 		}
 	}

@@ -1,19 +1,35 @@
 package controller
 
 import (
+	"crypto/rand"
+	"crypto/rsa"
 	"fmt"
 	"reflect"
+	"sync"
 	"testing"
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/tools/cache"
+	"k8s.io/client-go/tools/record"
 
-	. "kubevirt.io/containerized-data-importer/pkg/common"
+	"kubevirt.io/containerized-data-importer/pkg/common"
 )
 
 type CloneFixture struct {
 	ControllerFixture
+}
+
+var (
+	apiServerKey     *rsa.PrivateKey
+	apiServerKeyOnce sync.Once
+)
+
+func getAPIServerKey() *rsa.PrivateKey {
+	apiServerKeyOnce.Do(func() {
+		apiServerKey, _ = rsa.GenerateKey(rand.Reader, 2048)
+	})
+	return apiServerKey
 }
 
 func newCloneFixture(t *testing.T) *CloneFixture {
@@ -24,8 +40,11 @@ func newCloneFixture(t *testing.T) *CloneFixture {
 }
 
 func (f *CloneFixture) newCloneController() *CloneController {
+	v := newCloneTokenValidator(&getAPIServerKey().PublicKey)
 	return &CloneController{
-		Controller: *f.newController("test/mycloneimage", "Always", "5"),
+		Controller:     *f.newController("test/mycloneimage", "Always", "5"),
+		recorder:       &record.FakeRecorder{},
+		tokenValidator: v,
 	}
 }
 
@@ -84,23 +103,93 @@ func (f *CloneFixture) runController(pvcName string,
 // Verifies basic pods creation when new PVC is discovered
 func TestCreatesClonePods(t *testing.T) {
 	f := newCloneFixture(t)
-	pvc := createClonePvc("target-pvc", "target-ns", map[string]string{AnnCloneRequest: "source-ns/golden-pvc"}, nil)
+	sourcePvc := createPvc("golden-pvc", "source-ns", nil, nil)
+	pvc := createClonePvc("source-ns", "golden-pvc", "target-ns", "target-pvc", nil, nil)
 
+	f.pvcLister = append(f.pvcLister, sourcePvc)
 	f.pvcLister = append(f.pvcLister, pvc)
+	f.kubeobjects = append(f.kubeobjects, sourcePvc)
 	f.kubeobjects = append(f.kubeobjects, pvc)
 	id := string(pvc.GetUID())
 	expSourcePod := createSourcePod(pvc, id)
 	f.expectCreatePodAction(expSourcePod)
 	expTargetPod := createTargetPod(pvc, id, "source-ns")
 	f.expectCreatePodAction(expTargetPod)
-
 	f.run(getPvcKey(pvc, t))
+}
+
+// Verifies basic pods creation when new PVC is discovered
+func TestCreatesClonePodsBlockPvc(t *testing.T) {
+	f := newCloneFixture(t)
+	sourcePvc := createBlockPvc("golden-pvc", "source-ns", nil, nil)
+	pvc := createCloneBlockPvc("source-ns", "golden-pvc", "target-ns", "target-pvc", nil, nil)
+
+	f.pvcLister = append(f.pvcLister, sourcePvc)
+	f.pvcLister = append(f.pvcLister, pvc)
+	f.kubeobjects = append(f.kubeobjects, sourcePvc)
+	f.kubeobjects = append(f.kubeobjects, pvc)
+	id := string(pvc.GetUID())
+	expSourcePod := createSourcePod(pvc, id)
+	f.expectCreatePodAction(expSourcePod)
+	expTargetPod := createTargetPod(pvc, id, "source-ns")
+	f.expectCreatePodAction(expTargetPod)
+	f.run(getPvcKey(pvc, t))
+}
+
+// Verifies that one cannot clone from a PVC that doesn't exist
+func TestCannotCloneMissingSource(t *testing.T) {
+	f := newCloneFixture(t)
+	pvc := createCloneBlockPvc("source-ns", "golden-pvc", "target-ns", "target-pvc", nil, nil)
+
+	f.pvcLister = append(f.pvcLister, pvc)
+	f.kubeobjects = append(f.kubeobjects, pvc)
+	f.runExpectError(getPvcKey(pvc, t))
+}
+
+// Verifies that one cannot clone a fs pvc to a block pvc
+func TestCannotCloneFSToBlockPvc(t *testing.T) {
+	f := newCloneFixture(t)
+	sourcePvc := createPvc("golden-pvc", "source-ns", nil, nil)
+	pvc := createCloneBlockPvc("source-ns", "golden-pvc", "target-ns", "target-pvc", nil, nil)
+
+	f.pvcLister = append(f.pvcLister, sourcePvc)
+	f.pvcLister = append(f.pvcLister, pvc)
+	f.kubeobjects = append(f.kubeobjects, sourcePvc)
+	f.kubeobjects = append(f.kubeobjects, pvc)
+	f.runExpectError(getPvcKey(pvc, t))
+}
+
+// Verifies that one cannot clone a fs pvc to a block pvc
+func TestCannotCloneBlockToFSPvc(t *testing.T) {
+	f := newCloneFixture(t)
+	sourcePvc := createBlockPvc("golden-pvc", "source-ns", nil, nil)
+	pvc := createClonePvc("source-ns", "golden-pvc", "target-ns", "target-pvc", nil, nil)
+
+	f.pvcLister = append(f.pvcLister, sourcePvc)
+	f.pvcLister = append(f.pvcLister, pvc)
+	f.kubeobjects = append(f.kubeobjects, sourcePvc)
+	f.kubeobjects = append(f.kubeobjects, pvc)
+	f.runExpectError(getPvcKey(pvc, t))
+}
+
+// Verifies that one cannot clone a fs pvc to a block pvc
+func TestCannotCloneIfTargetIsSmaller(t *testing.T) {
+	f := newCloneFixture(t)
+	sourcePvc := createPvc("golden-pvc", "source-ns", nil, nil)
+	pvc := createClonePvcWithSize("source-ns", "golden-pvc", "target-ns", "target-pvc", nil, nil, "500M")
+
+	f.pvcLister = append(f.pvcLister, sourcePvc)
+	f.pvcLister = append(f.pvcLister, pvc)
+	f.kubeobjects = append(f.kubeobjects, sourcePvc)
+	f.kubeobjects = append(f.kubeobjects, pvc)
+	f.runExpectError(getPvcKey(pvc, t))
 }
 
 // Verifies pods creation is observed and pvc labels are set.
 func TestCloneObservePod(t *testing.T) {
 	f := newCloneFixture(t)
-	pvc := createPvc("target-pvc", "target-ns", map[string]string{AnnCloneRequest: "source-ns/golden-pvc"}, nil)
+	sourcePvc := createPvc("golden-pvc", "source-ns", nil, nil)
+	pvc := createClonePvc("source-ns", "golden-pvc", "target-ns", "target-pvc", nil, nil)
 	id := string(pvc.GetUID())
 
 	sourcePod := createSourcePod(pvc, id)
@@ -113,16 +202,22 @@ func TestCloneObservePod(t *testing.T) {
 	targetPod.Status.Phase = corev1.PodPending
 	targetPod.Namespace = "target-ns"
 
+	f.pvcLister = append(f.pvcLister, sourcePvc)
 	f.pvcLister = append(f.pvcLister, pvc)
 	f.podLister = append(f.podLister, sourcePod)
 	f.podLister = append(f.podLister, targetPod)
+	f.kubeobjects = append(f.kubeobjects, sourcePvc)
 	f.kubeobjects = append(f.kubeobjects, pvc)
 	f.kubeobjects = append(f.kubeobjects, sourcePod)
 	f.kubeobjects = append(f.kubeobjects, targetPod)
 
 	expPvc := pvc.DeepCopy()
-	expPvc.ObjectMeta.Labels = map[string]string{CDILabelKey: CDILabelValue}
-	expPvc.ObjectMeta.Annotations = map[string]string{AnnPodPhase: string(corev1.PodPending), AnnCloneRequest: "source-ns/golden-pvc"}
+	expPvc.ObjectMeta.Labels = map[string]string{common.CDILabelKey: common.CDILabelValue}
+	expPvc.ObjectMeta.Annotations = map[string]string{
+		AnnPodPhase:     string(corev1.PodPending),
+		AnnCloneRequest: "source-ns/golden-pvc",
+		AnnCloneToken:   pvc.Annotations[AnnCloneToken],
+	}
 
 	f.expectUpdatePvcAction(expPvc)
 
@@ -132,7 +227,8 @@ func TestCloneObservePod(t *testing.T) {
 // Verifies pods status updates are reflected in PVC annotations
 func TestClonePodStatusUpdating(t *testing.T) {
 	f := newCloneFixture(t)
-	pvc := createPvc("target-pvc", "target-ns", map[string]string{AnnCloneRequest: "source-ns/golden-pvc"}, nil)
+	sourcePvc := createPvc("golden-pvc", "source-ns", nil, nil)
+	pvc := createClonePvc("source-ns", "golden-pvc", "target-ns", "target-pvc", nil, nil)
 	id := string(pvc.GetUID())
 	sourcePod := createSourcePod(pvc, id)
 	sourcePod.Name = "madeup-source-name"
@@ -144,19 +240,29 @@ func TestClonePodStatusUpdating(t *testing.T) {
 	targetPod.Status.Phase = corev1.PodRunning
 	targetPod.Namespace = "target-ns"
 
-	pvc.ObjectMeta.Annotations = map[string]string{AnnPodPhase: string(corev1.PodPending), AnnCloneRequest: "source-ns/golden-pvc"}
-	pvc.ObjectMeta.Labels = map[string]string{CDILabelKey: CDILabelValue}
+	pvc.ObjectMeta.Annotations = map[string]string{
+		AnnPodPhase:     string(corev1.PodPending),
+		AnnCloneRequest: "source-ns/golden-pvc",
+		AnnCloneToken:   pvc.Annotations[AnnCloneToken],
+	}
+	pvc.ObjectMeta.Labels = map[string]string{common.CDILabelKey: common.CDILabelValue}
 
+	f.pvcLister = append(f.pvcLister, sourcePvc)
 	f.pvcLister = append(f.pvcLister, pvc)
 	f.podLister = append(f.podLister, sourcePod)
 	f.podLister = append(f.podLister, targetPod)
+	f.kubeobjects = append(f.kubeobjects, sourcePvc)
 	f.kubeobjects = append(f.kubeobjects, pvc)
 	f.kubeobjects = append(f.kubeobjects, sourcePod)
 	f.kubeobjects = append(f.kubeobjects, targetPod)
 
 	// expecting pvc's pod status annotation to be updated from pending => running
 	expPvc := pvc.DeepCopy()
-	expPvc.ObjectMeta.Annotations = map[string]string{AnnPodPhase: string(targetPod.Status.Phase), AnnCloneRequest: "source-ns/golden-pvc"}
+	expPvc.ObjectMeta.Annotations = map[string]string{
+		AnnPodPhase:     string(targetPod.Status.Phase),
+		AnnCloneRequest: "source-ns/golden-pvc",
+		AnnCloneToken:   pvc.Annotations[AnnCloneToken],
+	}
 
 	f.expectUpdatePvcAction(expPvc)
 

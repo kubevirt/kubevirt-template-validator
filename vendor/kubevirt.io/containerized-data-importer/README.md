@@ -37,7 +37,7 @@ CDI also includes a CRD, that provides an object of type DataVolume.  The DataVo
 Deploying the CDI controller is straightforward. In this document the _default_ namespace is used, but in a production setup a [protected namespace](#protecting-the-golden-image-namespace) that is inaccessible to regular users should be used instead.
 
   ```
-  $ export VERSION=$(curl https://github.com/kubevirt/containerized-data-importer/releases/latest | grep -o "v[0-9]\.[0-9]*\.[0-9]*")
+  $ export VERSION=$(curl -s https://github.com/kubevirt/containerized-data-importer/releases/latest | grep -o "v[0-9]\.[0-9]*\.[0-9]*")
   $ kubectl create -f https://github.com/kubevirt/containerized-data-importer/releases/download/$VERSION/cdi-operator.yaml
   $ kubectl create -f https://github.com/kubevirt/containerized-data-importer/releases/download/$VERSION/cdi-operator-cr.yaml
   ```
@@ -47,7 +47,7 @@ Deploying the CDI controller is straightforward. In this document the _default_ 
 Create a DataVolume and populate it with data from an http source
 
 ```
-$ kubectl create -f https://raw.githubusercontent.com/kubevirt/containerized-data-importer/$VERSION/manifests/example/datavolume.yaml
+$ kubectl create -f https://raw.githubusercontent.com/kubevirt/containerized-data-importer/$VERSION/manifests/example/import-kubevirt-datavolume.yaml
 ```
 
 There are quite a few examples in the [example manifests](https://github.com/kubevirt/containerized-data-importer/tree/master/manifests/example), check them out as a reference to create DataVolumes from additional sources like registries, S3 and your local system.

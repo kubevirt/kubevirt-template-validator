@@ -25,6 +25,8 @@ import (
 	"strconv"
 
 	flag "github.com/spf13/pflag"
+
+	"k8s.io/klog"
 )
 
 type Service interface {
@@ -47,9 +49,7 @@ func (service *ServiceListen) Address() string {
 }
 
 func (service *ServiceListen) InitFlags() {
-	flag.CommandLine.AddGoFlag(goflag.CommandLine.Lookup("v"))
-	flag.CommandLine.AddGoFlag(goflag.CommandLine.Lookup("kubeconfig"))
-	flag.CommandLine.AddGoFlag(goflag.CommandLine.Lookup("master"))
+	flag.CommandLine.AddGoFlagSet(goflag.CommandLine)
 }
 
 func (service *ServiceListen) AddCommonFlags() {
@@ -65,8 +65,22 @@ func (service *ServiceLibvirt) AddLibvirtFlags() {
 func Setup(service Service) {
 	service.AddFlags()
 
+	defVerbose := "2"
+
 	// set new default verbosity, was set to 0 by glog
-	flag.Set("v", "2")
+	flag.Set("v", defVerbose)
+	flag.Set("logtostderr", "true")
 
 	flag.Parse()
+
+	// borrowed from cdi/apiserver 1.9.5
+	klogFlags := goflag.NewFlagSet("klog", goflag.ExitOnError)
+	klog.InitFlags(klogFlags)
+	flag.CommandLine.VisitAll(func(f1 *flag.Flag) {
+		f2 := klogFlags.Lookup(f1.Name)
+		if f2 != nil {
+			value := f1.Value.String()
+			f2.Value.Set(value)
+		}
+	})
 }

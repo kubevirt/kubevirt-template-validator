@@ -21,7 +21,7 @@ const (
 	CDIComponentLabel = "cdi.kubevirt.io"
 
 	// PrometheusLabel provides the label to indicate prometheus metrics are available in the pods.
-	PrometheusLabel = "prometheus.kubevirt.io"
+	PrometheusLabel = "prometheus.cdi.kubevirt.io"
 
 	// ImporterVolumePath provides a constant for the directory where the PV is mounted.
 	ImporterVolumePath = "/data"
@@ -80,10 +80,8 @@ const (
 
 	// UploadServerCDILabel is the label applied to upload server resources
 	UploadServerCDILabel = "cdi-upload-server"
-
 	// UploadServerPodname is name of the upload server pod container
 	UploadServerPodname = UploadServerCDILabel
-
 	// UploadServerDataDir is the destination directoryfor uploads
 	UploadServerDataDir = ImporterDataDir
 	// UploadServerServiceLabel is the label selector for upload server services
@@ -109,4 +107,10 @@ const (
 
 	// ScratchSpaceNeededExitCode is the exit code that indicates the importer pod requires scratch space to function properly.
 	ScratchSpaceNeededExitCode = 42
+
+	// UploadTokenIssuer is the JWT issuer of upload tokens
+	UploadTokenIssuer = "cdi-apiserver"
+
+	// CloneTokenIssuer is the TWT issuer for clone tokens
+	CloneTokenIssuer = "cdi-apiserver"
 )

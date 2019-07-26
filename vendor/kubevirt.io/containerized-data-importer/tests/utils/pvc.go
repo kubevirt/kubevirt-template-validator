@@ -25,8 +25,6 @@ const (
 
 	// DefaultImagePath is the default destination for images created by CDI
 	DefaultImagePath = DefaultPvcMountPath + "/disk.img"
-	// DefaultImageBlockDevice is the default block device destination
-	DefaultImageBlockDevice = "/dev/blockDevice"
 
 	pvcPollInterval = defaultPollInterval
 	pvcCreateTime   = defaultPollPeriod
@@ -46,6 +44,26 @@ func CreatePVCFromDefinition(clientSet *kubernetes.Clientset, namespace string, 
 			return true, nil
 		}
 		return false, err
+	})
+	if err != nil {
+		return nil, err
+	}
+	return pvc, nil
+}
+
+// WaitForPVC waits for a PVC
+func WaitForPVC(clientSet *kubernetes.Clientset, namespace, name string) (*k8sv1.PersistentVolumeClaim, error) {
+	var pvc *k8sv1.PersistentVolumeClaim
+	err := wait.PollImmediate(pvcPollInterval, pvcCreateTime, func() (bool, error) {
+		var err error
+		pvc, err = FindPVC(clientSet, namespace, name)
+		if err != nil {
+			if apierrs.IsNotFound(err) {
+				return false, nil
+			}
+			return false, err
+		}
+		return true, nil
 	})
 	if err != nil {
 		return nil, err

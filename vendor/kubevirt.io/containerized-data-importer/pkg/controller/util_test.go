@@ -4,7 +4,11 @@ import (
 	"fmt"
 	"reflect"
 	"strconv"
+	"strings"
 	"testing"
+	"time"
+
+	"k8s.io/client-go/util/cert"
 
 	corev1 "k8s.io/api/core/v1"
 	v1 "k8s.io/api/core/v1"
@@ -25,6 +29,7 @@ import (
 	"kubevirt.io/containerized-data-importer/pkg/common"
 	. "kubevirt.io/containerized-data-importer/pkg/common"
 	"kubevirt.io/containerized-data-importer/pkg/keys"
+	"kubevirt.io/containerized-data-importer/pkg/token"
 )
 
 func TestController_pvcFromKey(t *testing.T) {
@@ -580,6 +585,61 @@ func Test_getSecretName(t *testing.T) {
 	}
 }
 
+func Test_getCloneRequestPVCAnnotation(t *testing.T) {
+	tests := []struct {
+		name       string
+		wantOk     bool
+		annKey     string
+		annValue   string
+		annErrType string
+	}{
+		{
+			name:       "pvc without annotation should return error",
+			wantOk:     false,
+			annKey:     "",
+			annValue:   "",
+			annErrType: "missing",
+		},
+		{
+			name:       "pvc with blank annotation should return error",
+			wantOk:     false,
+			annKey:     AnnCloneRequest,
+			annValue:   "",
+			annErrType: "empty",
+		},
+		{
+			name:       "pvc with valid clone annotation",
+			wantOk:     true,
+			annKey:     AnnCloneRequest,
+			annValue:   "default/pvc-name",
+			annErrType: "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			pvc := createPvc("test", "default", map[string]string{tt.annKey: tt.annValue}, nil)
+			ann, err := getCloneRequestPVCAnnotation(pvc)
+			if !tt.wantOk && err == nil {
+				t.Error("Got no error when expecting one")
+			} else if tt.wantOk && err != nil {
+				t.Errorf("Got error %+v when not expecting one", err)
+			}
+			if !tt.wantOk && err != nil {
+				// Verify that the error contains what we are expecting.
+				if !strings.Contains(err.Error(), tt.annErrType) {
+					t.Errorf("Expecting error message to contain %s, but not found", tt.annErrType)
+				}
+			} else if tt.wantOk && err == nil {
+				if ann != tt.annValue {
+					t.Error("expected annotation did not match found annotation")
+				}
+			}
+		})
+	}
+
+}
+
 func Test_updatePVC(t *testing.T) {
 	type args struct {
 		client kubernetes.Interface
@@ -1046,7 +1106,7 @@ func Test_getInsecureTLS(t *testing.T) {
 
 			if arg.insecureHost != "" {
 				cm.Data = map[string]string{
-					arg.insecureHost: "",
+					"test-registry": arg.insecureHost,
 				}
 			}
 
@@ -1127,6 +1187,102 @@ func Test_GetScratchPvcStorageClassPvc(t *testing.T) {
 
 	if result != storageClass {
 		t.Error("Storage class is not storageClass")
+	}
+}
+
+func Test_DecodePublicKey(t *testing.T) {
+	bytes, err := cert.EncodePublicKeyPEM(&getAPIServerKey().PublicKey)
+	if err != nil {
+		t.Errorf("error encoding public key")
+	}
+
+	_, err = DecodePublicKey(bytes)
+	if err != nil {
+		t.Errorf("error decoding public key")
+	}
+}
+
+func Test_TokenValidation(t *testing.T) {
+
+	goodTokenData := func() *token.Payload {
+		return &token.Payload{
+			Operation: token.OperationClone,
+			Name:      "source",
+			Namespace: "sourcens",
+			Resource: metav1.GroupVersionResource{
+				Resource: "persistentvolumeclaims",
+			},
+			Params: map[string]string{
+				"targetName":      "target",
+				"targetNamespace": "targetns",
+			},
+		}
+	}
+
+	badOperation := goodTokenData()
+	badOperation.Operation = token.OperationUpload
+
+	badSourceName := goodTokenData()
+	badSourceName.Name = "foo"
+
+	badSourceNamespace := goodTokenData()
+	badSourceNamespace.Namespace = "foo"
+
+	badResource := goodTokenData()
+	badResource.Resource.Resource = "foo"
+
+	badTargetName := goodTokenData()
+	badTargetName.Params["targetName"] = "foo"
+
+	badTargetNamespace := goodTokenData()
+	badTargetNamespace.Params["targetNamespace"] = "foo"
+
+	missingParams := goodTokenData()
+	missingParams.Params = nil
+
+	g := token.NewGenerator(common.CloneTokenIssuer, getAPIServerKey(), 5*time.Minute)
+	v := newCloneTokenValidator(&getAPIServerKey().PublicKey)
+
+	payloads := []*token.Payload{
+		goodTokenData(),
+		badOperation,
+		badSourceName,
+		badSourceNamespace,
+		badResource,
+		badTargetName,
+		badTargetNamespace,
+		missingParams,
+	}
+
+	for _, p := range payloads {
+		tokenString, err := g.Generate(p)
+		if err != nil {
+			panic("error generating token")
+		}
+
+		source := &v1.PersistentVolumeClaim{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "source",
+				Namespace: "sourcens",
+			},
+		}
+
+		target := &v1.PersistentVolumeClaim{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "target",
+				Namespace: "targetns",
+				Annotations: map[string]string{
+					AnnCloneToken: tokenString,
+				},
+			},
+		}
+
+		err = validateCloneToken(v, source, target)
+		if err == nil && !reflect.DeepEqual(p, goodTokenData()) {
+			t.Error("validation should have failed")
+		} else if err != nil && reflect.DeepEqual(p, goodTokenData()) {
+			t.Error("validation should have succeeded")
+		}
 	}
 }
 
@@ -1261,7 +1417,7 @@ func createPod(pvc *v1.PersistentVolumeClaim, dvname string, scratchPvc *v1.Pers
 
 func createBlockPvc(name, ns string, annotations, labels map[string]string) *v1.PersistentVolumeClaim {
 	pvcDef := createPvcInStorageClass(name, ns, nil, annotations, labels)
-	volumeMode := corev1.PersistentVolumeMode(corev1.PersistentVolumeBlock)
+	volumeMode := v1.PersistentVolumeBlock
 	pvcDef.Spec.VolumeMode = &volumeMode
 	return pvcDef
 }
@@ -1331,11 +1487,44 @@ func createPvcNoSize(name, ns string, annotations, labels map[string]string) *v1
 	}
 }
 
-func createClonePvc(name, ns string, annotations, labels map[string]string) *v1.PersistentVolumeClaim {
+func createClonePvc(sourceNamespace, sourceName, targetNamespace, targetName string, annotations, labels map[string]string) *v1.PersistentVolumeClaim {
+	return createClonePvcWithSize(sourceNamespace, sourceName, targetNamespace, targetName, annotations, labels, "1G")
+}
+
+func createClonePvcWithSize(sourceNamespace, sourceName, targetNamespace, targetName string, annotations, labels map[string]string, size string) *v1.PersistentVolumeClaim {
+	tokenData := &token.Payload{
+		Operation: token.OperationClone,
+		Name:      sourceName,
+		Namespace: sourceNamespace,
+		Resource: metav1.GroupVersionResource{
+			Group:    "",
+			Version:  "v1",
+			Resource: "persistentvolumeclaims",
+		},
+		Params: map[string]string{
+			"targetNamespace": targetNamespace,
+			"targetName":      targetName,
+		},
+	}
+
+	g := token.NewGenerator(common.CloneTokenIssuer, getAPIServerKey(), 5*time.Minute)
+
+	tokenString, err := g.Generate(tokenData)
+	if err != nil {
+		panic("error generating token")
+	}
+
+	if annotations == nil {
+		annotations = make(map[string]string)
+	}
+
+	annotations[AnnCloneRequest] = fmt.Sprintf("%s/%s", sourceNamespace, sourceName)
+	annotations[AnnCloneToken] = tokenString
+
 	return &v1.PersistentVolumeClaim{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:        name,
-			Namespace:   ns,
+			Name:        targetName,
+			Namespace:   targetNamespace,
 			Annotations: annotations,
 			Labels:      labels,
 			UID:         "pvc-uid",
@@ -1344,11 +1533,18 @@ func createClonePvc(name, ns string, annotations, labels map[string]string) *v1.
 			AccessModes: []v1.PersistentVolumeAccessMode{v1.ReadOnlyMany, v1.ReadWriteOnce},
 			Resources: v1.ResourceRequirements{
 				Requests: v1.ResourceList{
-					v1.ResourceName(v1.ResourceStorage): resource.MustParse("1G"),
+					v1.ResourceName(v1.ResourceStorage): resource.MustParse(size),
 				},
 			},
 		},
 	}
+}
+
+func createCloneBlockPvc(sourceNamespace, sourceName, targetNamespace, targetName string, annotations, labels map[string]string) *v1.PersistentVolumeClaim {
+	pvc := createClonePvc(sourceNamespace, sourceName, targetNamespace, targetName, annotations, labels)
+	VolumeMode := v1.PersistentVolumeBlock
+	pvc.Spec.VolumeMode = &VolumeMode
+	return pvc
 }
 
 func createSecret(name, ns, accessKey, secretKey string, labels map[string]string) *v1.Secret {
@@ -1501,14 +1697,15 @@ func createCloneController(pvcSpec *v1.PersistentVolumeClaim, sourcePodSpec *v1.
 	cache.WaitForCacheSync(stop, pvcInformer.Informer().HasSynced)
 	defer close(stop)
 
-	c := NewCloneController(myclient, pvcInformer, podInformer, "test/mycloneimage", "Always", "-v=5")
+	key := &getAPIServerKey().PublicKey
+
+	c := NewCloneController(myclient, pvcInformer, podInformer, "test/mycloneimage", "Always", "-v=5", key)
 	return c, pvc, sourcePod, targetPod, nil
 }
 
 func createSourcePod(pvc *v1.PersistentVolumeClaim, pvcUID string) *v1.Pod {
 	_, sourcePvcName := ParseSourcePvcAnnotation(pvc.GetAnnotations()[AnnCloneRequest], "/")
-	// source pod name contains the pvc name
-	podName := fmt.Sprintf("%s-", ClonerSourcePodName)
+	podName := fmt.Sprintf("%s-", common.ClonerSourcePodName)
 	blockOwnerDeletion := true
 	isController := true
 	pod := &v1.Pod{
@@ -1541,32 +1738,23 @@ func createSourcePod(pvc *v1.PersistentVolumeClaim, pvcUID string) *v1.Pod {
 			},
 		},
 		Spec: v1.PodSpec{
+			SecurityContext: &v1.PodSecurityContext{
+				RunAsUser: &[]int64{0}[0],
+				SELinuxOptions: &v1.SELinuxOptions{
+					Type: "spc_t",
+				},
+			},
 			Containers: []v1.Container{
 				{
-					Name:            ClonerSourcePodName,
+					Name:            common.ClonerSourcePodName,
 					Image:           "test/mycloneimage",
 					ImagePullPolicy: v1.PullPolicy("Always"),
-					SecurityContext: &v1.SecurityContext{
-						Privileged: &[]bool{true}[0],
-						RunAsUser:  &[]int64{0}[0],
-					},
-					VolumeMounts: []v1.VolumeMount{
-						{
-							Name:      ImagePathName,
-							MountPath: ClonerImagePath,
-						},
-						{
-							Name:      socketPathName,
-							MountPath: ClonerSocketPath + "/" + pvcUID,
-						},
-					},
-					Args: []string{"source", pvcUID},
 				},
 			},
 			RestartPolicy: v1.RestartPolicyNever,
 			Volumes: []v1.Volume{
 				{
-					Name: ImagePathName,
+					Name: DataVolName,
 					VolumeSource: v1.VolumeSource{
 						PersistentVolumeClaim: &v1.PersistentVolumeClaimVolumeSource{
 							ClaimName: sourcePvcName,
@@ -1585,6 +1773,22 @@ func createSourcePod(pvc *v1.PersistentVolumeClaim, pvcUID string) *v1.Pod {
 			},
 		},
 	}
+
+	var volumeMode v1.PersistentVolumeMode
+	if pvc.Spec.VolumeMode != nil {
+		volumeMode = *pvc.Spec.VolumeMode
+	} else {
+		volumeMode = v1.PersistentVolumeFilesystem
+	}
+
+	if volumeMode == v1.PersistentVolumeBlock {
+		pod.Spec.Containers[0].VolumeDevices = addVolumeDevices()
+		pod.Spec.Containers[0].VolumeMounts = addCloneVolumeMounts("Block", pvcUID)
+		pod.Spec.Containers[0].Args = addArgs("source", pvcUID, "block")
+	} else {
+		pod.Spec.Containers[0].VolumeMounts = addCloneVolumeMounts("FS", pvcUID)
+		pod.Spec.Containers[0].Args = addArgs("source", pvcUID, "FS")
+	}
 	return pod
 }
 
@@ -1594,6 +1798,10 @@ func createTargetPod(pvc *v1.PersistentVolumeClaim, pvcUID, podAffinityNamespace
 	blockOwnerDeletion := true
 	isController := true
 	ownerUID := pvc.UID
+	if len(pvc.OwnerReferences) == 1 {
+		ownerUID = pvc.OwnerReferences[0].UID
+	}
+
 	pod := &v1.Pod{
 		TypeMeta: metav1.TypeMeta{
 			Kind:       "Pod",
@@ -1606,8 +1814,8 @@ func createTargetPod(pvc *v1.PersistentVolumeClaim, pvcUID, podAffinityNamespace
 				AnnTargetPodNamespace: pvc.Namespace,
 			},
 			Labels: map[string]string{
-				CDILabelKey:       CDILabelValue, //filtered by the podInformer
-				CDIComponentLabel: ClonerTargetPodName,
+				common.CDILabelKey:       common.CDILabelValue, //filtered by the podInformer
+				common.CDIComponentLabel: common.ClonerTargetPodName,
 				// this label is used when searching for a pvc's cloner target pod.
 				CloneUniqueID:   pvcUID + "-target-pod",
 				PrometheusLabel: "",
@@ -1631,38 +1839,29 @@ func createTargetPod(pvc *v1.PersistentVolumeClaim, pvcUID, podAffinityNamespace
 							LabelSelector: &metav1.LabelSelector{
 								MatchExpressions: []metav1.LabelSelectorRequirement{
 									{
-										Key:      CloningLabelKey,
+										Key:      common.CloningLabelKey,
 										Operator: metav1.LabelSelectorOpIn,
 										Values:   []string{CloningLabelValue + "-" + pvcUID},
 									},
 								},
 							},
 							Namespaces:  []string{podAffinityNamespace}, //the scheduler looks for the namespace of the source pod
-							TopologyKey: CloningTopologyKey,
+							TopologyKey: common.CloningTopologyKey,
 						},
 					},
 				},
 			},
+			SecurityContext: &v1.PodSecurityContext{
+				RunAsUser: &[]int64{0}[0],
+				SELinuxOptions: &v1.SELinuxOptions{
+					Type: "spc_t",
+				},
+			},
 			Containers: []v1.Container{
 				{
-					Name:            ClonerTargetPodName,
+					Name:            common.ClonerTargetPodName,
 					Image:           "test/mycloneimage",
 					ImagePullPolicy: v1.PullPolicy("Always"),
-					SecurityContext: &v1.SecurityContext{
-						Privileged: &[]bool{true}[0],
-						RunAsUser:  &[]int64{0}[0],
-					},
-					VolumeMounts: []v1.VolumeMount{
-						{
-							Name:      ImagePathName,
-							MountPath: ClonerImagePath,
-						},
-						{
-							Name:      socketPathName,
-							MountPath: ClonerSocketPath + "/" + pvcUID,
-						},
-					},
-					Args: []string{"target", pvcUID},
 					Ports: []v1.ContainerPort{
 						{
 							Name:          "metrics",
@@ -1672,7 +1871,7 @@ func createTargetPod(pvc *v1.PersistentVolumeClaim, pvcUID, podAffinityNamespace
 					},
 					Env: []v1.EnvVar{
 						{
-							Name:  OwnerUID,
+							Name:  common.OwnerUID,
 							Value: string(ownerUID),
 						},
 					},
@@ -1681,7 +1880,7 @@ func createTargetPod(pvc *v1.PersistentVolumeClaim, pvcUID, podAffinityNamespace
 			RestartPolicy: v1.RestartPolicyNever,
 			Volumes: []v1.Volume{
 				{
-					Name: ImagePathName,
+					Name: DataVolName,
 					VolumeSource: v1.VolumeSource{
 						PersistentVolumeClaim: &v1.PersistentVolumeClaimVolumeSource{
 							ClaimName: pvc.Name,
@@ -1699,6 +1898,21 @@ func createTargetPod(pvc *v1.PersistentVolumeClaim, pvcUID, podAffinityNamespace
 				},
 			},
 		},
+	}
+	var volumeMode v1.PersistentVolumeMode
+	if pvc.Spec.VolumeMode != nil {
+		volumeMode = *pvc.Spec.VolumeMode
+	} else {
+		volumeMode = v1.PersistentVolumeFilesystem
+	}
+
+	if volumeMode == v1.PersistentVolumeBlock {
+		pod.Spec.Containers[0].VolumeDevices = addVolumeDevices()
+		pod.Spec.Containers[0].VolumeMounts = addCloneVolumeMounts("Block", pvcUID)
+		pod.Spec.Containers[0].Args = addArgs("target", pvcUID, "block")
+	} else {
+		pod.Spec.Containers[0].VolumeMounts = addCloneVolumeMounts("FS", pvcUID)
+		pod.Spec.Containers[0].Args = addArgs("target", pvcUID, "FS")
 	}
 	return pod
 }

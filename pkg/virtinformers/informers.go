@@ -33,7 +33,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/fields"
 
-	"kubevirt.io/kubevirt/pkg/kubecli"
+	"kubevirt.io/client-go/kubecli"
 
 	"github.com/fromanirh/kubevirt-template-validator/internal/pkg/log"
 )
@@ -43,6 +43,10 @@ var pkgInformers *Informers
 
 type Informers struct {
 	TemplateInformer cache.SharedIndexInformer
+}
+
+func (inf *Informers) Available() bool {
+	return inf != nil && inf.TemplateInformer != nil
 }
 
 func GetInformers() *Informers {

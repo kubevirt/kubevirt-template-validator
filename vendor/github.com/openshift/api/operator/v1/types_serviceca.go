@@ -13,10 +13,8 @@ type ServiceCA struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata"`
 
-	//spec holds user settable values for configuration
 	// +required
-	Spec ServiceCASpec `json:"spec"`
-	// status holds observed values from the cluster. They may not be overridden.
+	Spec   ServiceCASpec   `json:"spec"`
 	// +optional
 	Status ServiceCAStatus `json:"status"`
 }

@@ -32,7 +32,7 @@ if [ "${CI}" == "true" ] && [ "${TRAVIS}" == "true" ]; then
 	sleep 5s
 
 	oc get pods -n ${NAMESPACE}
-	oc get pod -n ${NAMESPACE} -l "kubevirt.io=virt-template-validator" -o yaml
+	oc describe pod -n ${NAMESPACE} -l "kubevirt.io=virt-template-validator"
 
 	sleep 5s
 fi

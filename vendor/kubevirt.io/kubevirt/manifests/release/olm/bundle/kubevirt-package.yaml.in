@@ -1,4 +1,0 @@
-packageName: {{.PackageName}}
-channels:
-  - name: beta
-    currentCSV: kubevirtoperator.{{.CsvVersion}}

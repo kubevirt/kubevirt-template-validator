@@ -56,6 +56,5 @@ before_script:
 
 script:
 - bash -x test.sh
-- bash -x hack/env/upgrade-kubevirt.sh v0.19.0
-- bash -x hack/env/wait-kubevirt.sh
-- bash -x test.sh
+- bash -x hack/env/upgrade-and-test.sh v0.19.0
+- bash -x hack/env/upgrade-and-test.sh latest v0.19.0

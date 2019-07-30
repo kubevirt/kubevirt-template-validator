@@ -12,4 +12,4 @@ VERSIONDIR="internal/pkg/version"
 VERSIONFILE="${VERSIONDIR}/version.go"
 
 mkdir -p ${VERSIONDIR} && ./hack/build/genver.sh ${TAG} > ${VERSIONFILE}
-cd cmd/kubevirt-template-validator && go build -v .
+cd cmd/kubevirt-template-validator && GO111MODULE=on go build -v .

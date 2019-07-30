@@ -11,6 +11,8 @@ branches:
 services:
 - docker
 
+go: "1.12"
+
 jobs:
   include:
   - stage: Tests

@@ -65,3 +65,5 @@ require (
 	kubevirt.io/containerized-data-importer v1.9.5
 	sigs.k8s.io/yaml v1.1.0
 )
+
+replace github.com/go-kit/kit => github.com/go-kit/kit v0.3.0

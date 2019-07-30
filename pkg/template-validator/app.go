@@ -19,11 +19,14 @@
 package validator
 
 import (
+	"fmt"
 	"net/http"
 
 	flag "github.com/spf13/pflag"
 
 	"k8s.io/client-go/tools/cache"
+
+	k6tversion "kubevirt.io/client-go/version"
 
 	_ "github.com/fromanirh/okdutil/okd"
 
@@ -64,8 +67,14 @@ func (app *App) AddFlags() {
 	flag.BoolVarP(&app.skipInformers, "skip-informers", "S", false, "don't initialize informerers - use this only in devel mode")
 }
 
+func (app *App) KubevirtVersion() string {
+	info := k6tversion.Get()
+	return fmt.Sprintf("%s %s %s", info.GitVersion, info.GitCommit, info.BuildDate)
+}
+
 func (app *App) Run() {
 	log.Log.Infof("%s %s (revision: %s) starting", version.COMPONENT, version.VERSION, version.REVISION)
+	log.Log.Infof("%s using kubevirt client-go (%s)", version.COMPONENT, app.KubevirtVersion())
 	if app.versionOnly {
 		return
 	}

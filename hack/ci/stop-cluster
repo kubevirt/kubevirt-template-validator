@@ -1,0 +1,20 @@
+#!/bin/bash
+# usage: stop-cluster (minikube|oc_cluster) $CLUSTER_VERSION
+
+set -e
+
+source $(dirname $(realpath $0))/../../ci/ci/defaults
+
+warn() { echo "WARN: $@" >&2 ; }
+condarg() { [[ -n "$2" ]] && echo "$1$2"; }
+
+_minishift() {
+  local CVER=$1
+
+  minishift stop
+  minishift delete -f
+}
+
+_${1:-$DEFAULT_PLATFORM} ${2:-$DEFAULT_CLUSTER_VERSION}
+
+sleep 5

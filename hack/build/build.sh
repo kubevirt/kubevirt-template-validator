@@ -1,6 +1,6 @@
 #!/bin/sh
 
-set -e
+set -ex
 
 if [ -z "$1" ]; then
 	echo "usage: $0 <tag>"

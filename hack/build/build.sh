@@ -1,6 +1,6 @@
 #!/bin/sh
 
-set -e
+set -ex
 
 if [ -z "$1" ]; then
 	echo "usage: $0 <tag>"
@@ -12,4 +12,8 @@ VERSIONDIR="internal/pkg/version"
 VERSIONFILE="${VERSIONDIR}/version.go"
 
 mkdir -p ${VERSIONDIR} && ./hack/build/genver.sh ${TAG} > ${VERSIONFILE}
-cd cmd/kubevirt-template-validator && GO111MODULE=on go build -v .
+
+export GO111MODULE=on
+export GOPROXY=off
+export GOFLAGS=-mod=vendor
+cd cmd/kubevirt-template-validator && go build -v .

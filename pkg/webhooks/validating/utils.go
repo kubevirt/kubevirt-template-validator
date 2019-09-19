@@ -50,7 +50,7 @@ func getTemplateKey(vm *k6tv1.VirtualMachine) (string, bool) {
 	}
 
 	templateName := vm.Annotations[annotationTemplateNameKey]
-	if templateNamespace == "" {
+	if templateName == "" {
 		log.Log.V(4).Warningf("VM %s missing template annotation", vm.Name)
 		return "", false
 	}

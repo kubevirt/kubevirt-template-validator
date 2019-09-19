@@ -22,7 +22,9 @@ class Version(_version):
 
 
 def versions(data):
-    versions = [ Version.from_string(item['tag_name']) for item in data]
+    tags = [ item['tag_name'] for item in data ]
+    sys.stderr.write('tags: %s\n' % sorted(tags))
+    versions = [ Version.from_string(tag) for tag in tags]
     buckets = {}
     for ver in versions:
         key = (ver.major, ver.minor)

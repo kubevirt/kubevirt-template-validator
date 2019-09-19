@@ -32,9 +32,10 @@ import (
 )
 
 const (
-	annotationTemplateNameKey      string = "vm.kubevirt.io/template"
-	annotationTemplateNamespaceKey string = "vm.kubevirt.io/template-namespace"
-	annotationValidationKey        string = "validations"
+	annotationTemplateNameKey         string = "vm.kubevirt.io/template"
+	annotationTemplateNamespaceKey    string = "vm.kubevirt.io/template.namespace"
+	annotationTemplateNamespaceOldKey string = "vm.kubevirt.io/template-namespace"
+	annotationValidationKey           string = "validations"
 )
 
 func getTemplateKey(vm *k6tv1.VirtualMachine) (string, bool) {
@@ -44,6 +45,13 @@ func getTemplateKey(vm *k6tv1.VirtualMachine) (string, bool) {
 	}
 
 	templateNamespace := vm.Annotations[annotationTemplateNamespaceKey]
+	if templateNamespace == "" {
+		templateNamespace = vm.Annotations[annotationTemplateNamespaceOldKey]
+		if templateNamespace != "" {
+			log.Log.V(3).Warningf("VM %s has old-style template namespace annotation '%s', should be updated to '%s'", vm.Name, annotationTemplateNamespaceOldKey, annotationTemplateNamespaceKey)
+		}
+	}
+
 	if templateNamespace == "" {
 		log.Log.V(4).Warningf("VM %s missing template namespace annotation", vm.Name)
 		return "", false

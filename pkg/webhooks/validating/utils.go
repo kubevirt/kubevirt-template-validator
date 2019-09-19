@@ -48,7 +48,7 @@ func getTemplateKey(vm *k6tv1.VirtualMachine) (string, bool) {
 	if templateNamespace == "" {
 		templateNamespace = vm.Annotations[annotationTemplateNamespaceOldKey]
 		if templateNamespace != "" {
-			log.Log.V(3).Warningf("VM %s has old-style template namespace annotation '%s', should be updated to '%s'", vm.Name, annotationTemplateNamespaceOldKey, annotationTemplateNamespaceKey)
+			log.Log.V(5).Warningf("VM %s has old-style template namespace annotation '%s', should be updated to '%s'", vm.Name, annotationTemplateNamespaceOldKey, annotationTemplateNamespaceKey)
 		}
 	}
 

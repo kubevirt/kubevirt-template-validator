@@ -38,32 +38,43 @@ const (
 	annotationValidationKey           string = "validations"
 )
 
-func getTemplateKey(vm *k6tv1.VirtualMachine) (string, bool) {
-	if vm.Annotations == nil {
-		log.Log.V(4).Infof("VM %s missing annotations entirely", vm.Name)
+func getTemplateKeyFromMap(vmName string, targetMap map[string]string) (string, bool) {
+	if targetMap == nil {
+		log.Log.V(4).Infof("VM %s missing annotations entirely", vmName)
 		return "", false
 	}
 
-	templateNamespace := vm.Annotations[annotationTemplateNamespaceKey]
+	templateNamespace := targetMap[annotationTemplateNamespaceKey]
 	if templateNamespace == "" {
-		templateNamespace = vm.Annotations[annotationTemplateNamespaceOldKey]
+		templateNamespace = targetMap[annotationTemplateNamespaceOldKey]
 		if templateNamespace != "" {
-			log.Log.V(5).Warningf("VM %s has old-style template namespace annotation '%s', should be updated to '%s'", vm.Name, annotationTemplateNamespaceOldKey, annotationTemplateNamespaceKey)
+			log.Log.V(5).Warningf("VM %s has old-style template namespace annotation '%s', should be updated to '%s'", vmName, annotationTemplateNamespaceOldKey, annotationTemplateNamespaceKey)
 		}
 	}
 
 	if templateNamespace == "" {
-		log.Log.V(4).Infof("VM %s missing template namespace annotation", vm.Name)
+		log.Log.V(4).Infof("VM %s missing template namespace annotation", vmName)
 		return "", false
 	}
 
-	templateName := vm.Annotations[annotationTemplateNameKey]
+	templateName := targetMap[annotationTemplateNameKey]
 	if templateName == "" {
-		log.Log.V(4).Infof("VM %s missing template annotation", vm.Name)
+		log.Log.V(4).Infof("VM %s missing template annotation", vmName)
 		return "", false
 	}
 
 	return fmt.Sprintf("%s/%s", templateNamespace, templateName), true
+}
+
+func getTemplateKey(vm *k6tv1.VirtualMachine) (string, bool) {
+	var cacheKey string
+	var ok bool
+
+	cacheKey, ok = getTemplateKeyFromMap(vm.Name, vm.Labels)
+	if !ok {
+		cacheKey, ok = getTemplateKeyFromMap(vm.Name, vm.Annotations)
+	}
+	return cacheKey, ok
 }
 
 func getParentTemplateForVM(vm *k6tv1.VirtualMachine) (*templatev1.Template, error) {

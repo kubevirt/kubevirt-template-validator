@@ -40,7 +40,7 @@ const (
 
 func getTemplateKey(vm *k6tv1.VirtualMachine) (string, bool) {
 	if vm.Annotations == nil {
-		log.Log.V(4).Warningf("VM %s missing annotations entirely", vm.Name)
+		log.Log.V(4).Infof("VM %s missing annotations entirely", vm.Name)
 		return "", false
 	}
 
@@ -53,13 +53,13 @@ func getTemplateKey(vm *k6tv1.VirtualMachine) (string, bool) {
 	}
 
 	if templateNamespace == "" {
-		log.Log.V(4).Warningf("VM %s missing template namespace annotation", vm.Name)
+		log.Log.V(4).Infof("VM %s missing template namespace annotation", vm.Name)
 		return "", false
 	}
 
 	templateName := vm.Annotations[annotationTemplateNameKey]
 	if templateName == "" {
-		log.Log.V(4).Warningf("VM %s missing template annotation", vm.Name)
+		log.Log.V(4).Infof("VM %s missing template annotation", vm.Name)
 		return "", false
 	}
 

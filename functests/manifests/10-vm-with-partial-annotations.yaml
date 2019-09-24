@@ -1,0 +1,35 @@
+apiVersion: kubevirt.io/v1alpha3
+kind: VirtualMachine
+metadata:
+  creationTimestamp: null
+  labels:
+    kubevirt.io/vm: vm-test-10
+  name: vm-test-10
+  annotations:
+    vm.kubevirt.io/template-namespace: default
+spec:
+  running: false
+  template:
+    metadata:
+      creationTimestamp: null
+      labels:
+        kubevirt.io/vm: vm-test-10
+    spec:
+      domain:
+        cpu:
+          cores: 2
+        devices:
+          interfaces:
+          - name: default
+            bridge: {}
+        machine:
+          type: "q35"
+        resources:
+          requests:
+            memory: 128M
+      networks:
+      - name: default
+        pod: {}
+      evictionStrategy: LiveMigrate
+      terminationGracePeriodSeconds: 0
+status: {}

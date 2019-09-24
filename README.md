@@ -3,6 +3,15 @@
 `kubevirt-template-validator` is a [kubevirt](http://kubevirt.io) addon to check the [annotations on templates](https://github.com/kubevirt/common-templates/blob/master/templates/VALIDATION.md) and reject them if unvalid.
 It is implemented using a [validating webhook](https://kubernetes.io/docs/reference/access-authn-authz/extensible-admission-controllers/).
 
+The validating webhook uses two `VM` object metadata to get the parent template from which the VM was created: `vm.kubevirt.io/template` and `vm.kubevirt.io/template.namespace`.
+If either of these two metadata is missing, the webhook silently succeeds and the VM flow goes on as usual. The metadata are looked into the VM object `metadata.labels` first,
+and in the `metadata.annotations` then. If both are present, `metadata.labels` always prevails, because the webhook exits early at first fit.
+The webhook uses the VM metadata to fetch the [validation annotations](https://github.com/kubevirt/common-templates/blob/master/templates/VALIDATION.md) from the parent template
+metadata. Should validation annotation be missing, the webhook silently succeeds and the VM flow goes on as usual. Otherwise the annotations are parsed and evaluated against
+the VM object being validated.
+
+Under no circumstances the validating webhook is allowed to mutate any of the objects (VM, template) it works with.
+
 [![Go Report Card](https://goreportcard.com/badge/github.com/fromanirh/kubevirt-template-validator)](https://goreportcard.com/report/github.com/fromanirh/kubevirt-template-validator)
 
 ## License

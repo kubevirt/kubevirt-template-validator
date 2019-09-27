@@ -137,7 +137,7 @@ var _ = Describe("Eval", func() {
 			vmCirros = NewVMCirros()
 		})
 
-		It("should handle skip uninitialized paths if requested", func() {
+		It("should skip uninitialized paths if requested", func() {
 			rules := []validation.Rule{
 				validation.Rule{
 					Name:    "LimitCores",
@@ -177,6 +177,41 @@ var _ = Describe("Eval", func() {
 			res := ev.Evaluate(rules, vmCirros)
 
 			Expect(res.Succeeded()).To(BeFalse())
+		})
+
+		It("should handle uninitialized paths intermixed with valid paths", func() {
+			rules := []validation.Rule{
+				validation.Rule{
+					Rule:    "integer",
+					Name:    "EnoughMemory",
+					Path:    "jsonpath::.spec.domain.resources.requests.memory",
+					Message: "Memory size not specified",
+					Min:     64 * 1024 * 1024,
+					Max:     512 * 1024 * 1024,
+				},
+				validation.Rule{
+					Rule:    "integer",
+					Name:    "LimitCores",
+					Path:    "jsonpath::.spec.domain.cpu.cores",
+					Message: "Core amount not within range",
+					Min:     1,
+					Max:     4,
+				},
+				validation.Rule{
+					Rule:    "enum",
+					Name:    "SupportedChipset",
+					Path:    "jsonpath::.spec.domain.machine.type",
+					Message: "machine type must be a supported value",
+					Values:  []string{"q35"},
+				},
+			}
+
+			ev := validation.Evaluator{Sink: GinkgoWriter}
+			res := ev.Evaluate(rules, vmCirros)
+			Expect(res.Succeeded()).To(BeFalse())
+
+			causes := res.ToStatusCauses()
+			Expect(len(causes)).To(Equal(1))
 		})
 
 		It("should not fail, when justWarning is set", func() {
@@ -303,42 +338,7 @@ var _ = Describe("Eval", func() {
 			Expect(res.Succeeded()).To(BeFalse())
 		})
 
-		It("Should fail until https://github.com/fromanirh/kubevirt-template-validator/issues/2 is solved with uninitialized paths", func() {
-			rules := []validation.Rule{
-				validation.Rule{
-					Rule:    "integer",
-					Name:    "EnoughMemory",
-					Path:    "jsonpath::.spec.domain.resources.requests.memory",
-					Message: "Memory size not specified",
-					Min:     64 * 1024 * 1024,
-					Max:     512 * 1024 * 1024,
-				},
-				validation.Rule{
-					Rule:    "integer",
-					Name:    "LimitCores",
-					Path:    "jsonpath::.spec.domain.cpu.cores",
-					Message: "Core amount not within range",
-					Min:     1,
-					Max:     4,
-				},
-				validation.Rule{
-					Rule:    "enum",
-					Name:    "SupportedChipset",
-					Path:    "jsonpath::.spec.domain.machine.type",
-					Message: "machine type must be a supported value",
-					Values:  []string{"q35"},
-				},
-			}
-
-			ev := validation.Evaluator{Sink: GinkgoWriter}
-			res := ev.Evaluate(rules, vmCirros)
-			Expect(res.Succeeded()).To(BeFalse())
-
-			causes := res.ToStatusCauses()
-			Expect(len(causes)).To(Equal(1))
-		})
-
-		It("should not fail, when rule with justWarning is not correct and another rule is correct", func() {
+		It("Should fail, when rule with justWarning has incorrect path and another rule is correct", func() {
 			rules := []validation.Rule{
 				{
 					Name:        "disk bus",
@@ -361,12 +361,20 @@ var _ = Describe("Eval", func() {
 			ev := validation.Evaluator{Sink: GinkgoWriter}
 			res := ev.Evaluate(rules, vmCirros)
 
-			Expect(res.Succeeded()).To(BeTrue(), "succeeded")
-			Expect(len(res.Status)).To(Equal(1), "status length")
+			for ix := range res.Status {
+				fmt.Fprintf(GinkgoWriter, "%+#v", res.Status[ix])
+			}
+
+			Expect(res.Succeeded()).To(BeFalse(), "succeeded")
+			Expect(len(res.Status)).To(Equal(2), "status length")
 			//status for second rule which should pass
 			Expect(res.Status[0].Skipped).To(BeFalse(), "skipped")
-			Expect(res.Status[0].Satisfied).To(BeTrue(), "satisfied")
-			Expect(res.Status[0].Error).To(BeNil(), "error")
+			Expect(res.Status[0].Satisfied).To(BeFalse(), "satisfied")
+			Expect(res.Status[0].Error).NotTo(BeNil(), "error") // expects invalid JSONPath
+
+			Expect(res.Status[1].Skipped).To(BeFalse(), "skipped")
+			Expect(res.Status[1].Satisfied).To(BeTrue(), "satisfied")
+			Expect(res.Status[1].Error).To(BeNil(), "error")
 		})
 	})
 })

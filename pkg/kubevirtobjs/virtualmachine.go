@@ -19,7 +19,6 @@
 package kubevirtobjs
 
 import (
-	"fmt"
 	"reflect"
 
 	k6tv1 "kubevirt.io/client-go/api/v1"
@@ -31,12 +30,6 @@ const (
 	MaxPortsPerIface uint = 16
 	MaxNTPServers    uint = 8
 	MaxItems         int  = 64
-)
-
-var (
-	ErrTooManyDisks         error = fmt.Errorf("Too many disks requested, max = %d", MaxDisks)
-	ErrTooManyIfaces        error = fmt.Errorf("Too many network interface requested, max = %d", MaxIfaces)
-	ErrTooManyPortsPerIface error = fmt.Errorf("Too many ports per network interface requested, max = %d", MaxPortsPerIface)
 )
 
 // NewVirtualMachine returns a fully zero-value VirtualMachine with all optional fields

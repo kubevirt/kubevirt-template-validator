@@ -23,7 +23,6 @@ class Version(_version):
 
 def versions(data):
     tags = [ item['tag_name'] for item in data ]
-    sys.stderr.write('tags: %s\n' % sorted(tags))
     versions = [ Version.from_string(tag) for tag in tags]
     buckets = {}
     for ver in versions:
@@ -36,6 +35,31 @@ def versions(data):
     return list(reversed(sorted(buckets.values())))
 
 
-if __name__ == "__main__":
+def _find_ver_idx(vers, target):
+    for idx, ver in enumerate(vers):
+        if ver == target:
+            return idx
+    return None
+
+
+def _main():
+    builtin = Version.from_string(sys.argv[1])
     vers = versions(json.load(sys.stdin))
-    print(str(vers[0]))
+    out = {
+            'last': vers[0],
+            'builtin': builtin,
+            'previous': builtin
+    }
+
+    idx = _find_ver_idx(vers, builtin)
+    if idx is not None or idx < len(builtin):
+        out['previous'] = vers[idx+1]
+
+    print('last=%s\nbuiltin=%s\nprevious=%s' % (
+          out['last'], out['builtin'], out['previous']))
+
+
+if __name__ == "__main__":
+    if len(sys.argv) != 2:
+        sys.exit(2)
+    _main()

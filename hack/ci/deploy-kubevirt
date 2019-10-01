@@ -1,0 +1,8 @@
+#!/bin/bash
+# usage: deploy-kubevirt (minikube|minishift|oc_cluster) $KUBEVIRT_VERSION
+
+set -e
+
+PREVIOUS=$( awk -F= '/^previous=/ { print $2 }' versionsrc)
+
+$(dirname $(realpath $0))/../../ci/deploy-kubevirt $1 ${PREVIOUS}

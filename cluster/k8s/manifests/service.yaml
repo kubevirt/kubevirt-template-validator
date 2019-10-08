@@ -46,7 +46,7 @@ metadata:
   labels:
     name: virtualmachine-template-validator
 spec:
-  replicas: 1
+  replicas: 2
   template:
     metadata:
       name: virtualmachine-template-validator 

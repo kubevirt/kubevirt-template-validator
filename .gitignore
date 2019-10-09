@@ -17,3 +17,6 @@ _out
 TODO
 internal/pkg/version/version.go
 pkg/kubevirtobjs/*.dump
+
+releases.json
+versionsrc

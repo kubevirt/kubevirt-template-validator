@@ -38,9 +38,9 @@ const (
 	annotationValidationKey           string = "validations"
 )
 
-func getTemplateKeyFromMap(vmName string, targetMap map[string]string) (string, bool) {
+func getTemplateKeyFromMap(vmName, targetName string, targetMap map[string]string) (string, bool) {
 	if targetMap == nil {
-		log.Log.V(4).Infof("VM %s missing annotations entirely", vmName)
+		log.Log.V(4).Infof("VM %s missing %s entirely", vmName, targetName)
 		return "", false
 	}
 
@@ -48,18 +48,18 @@ func getTemplateKeyFromMap(vmName string, targetMap map[string]string) (string, 
 	if templateNamespace == "" {
 		templateNamespace = targetMap[annotationTemplateNamespaceOldKey]
 		if templateNamespace != "" {
-			log.Log.V(5).Warningf("VM %s has old-style template namespace annotation '%s', should be updated to '%s'", vmName, annotationTemplateNamespaceOldKey, annotationTemplateNamespaceKey)
+			log.Log.V(5).Warningf("VM %s has old-style template namespace %s '%s', should be updated to '%s'", vmName, targetName, annotationTemplateNamespaceOldKey, annotationTemplateNamespaceKey)
 		}
 	}
 
 	if templateNamespace == "" {
-		log.Log.V(4).Infof("VM %s missing template namespace annotation", vmName)
+		log.Log.V(4).Infof("VM %s missing template namespace %s", vmName, targetName)
 		return "", false
 	}
 
 	templateName := targetMap[annotationTemplateNameKey]
 	if templateName == "" {
-		log.Log.V(4).Infof("VM %s missing template annotation", vmName)
+		log.Log.V(4).Infof("VM %s missing template %s", vmName, targetName)
 		return "", false
 	}
 
@@ -70,9 +70,9 @@ func getTemplateKey(vm *k6tv1.VirtualMachine) (string, bool) {
 	var cacheKey string
 	var ok bool
 
-	cacheKey, ok = getTemplateKeyFromMap(vm.Name, vm.Labels)
+	cacheKey, ok = getTemplateKeyFromMap(vm.Name, "labels", vm.Labels)
 	if !ok {
-		cacheKey, ok = getTemplateKeyFromMap(vm.Name, vm.Annotations)
+		cacheKey, ok = getTemplateKeyFromMap(vm.Name, "annotations", vm.Annotations)
 	}
 	return cacheKey, ok
 }

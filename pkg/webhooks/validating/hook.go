@@ -102,5 +102,4 @@ func serve(resp http.ResponseWriter, req *http.Request, admit admitFunc) {
 		resp.WriteHeader(http.StatusBadRequest)
 		return
 	}
-	resp.WriteHeader(http.StatusOK)
 }

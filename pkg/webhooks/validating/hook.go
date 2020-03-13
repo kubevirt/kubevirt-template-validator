@@ -48,6 +48,10 @@ func admitVMTemplate(ar *v1beta1.AdmissionReview) *v1beta1.AdmissionResponse {
 		return webhooks.ToAdmissionResponseError(err)
 	}
 
+	if newVM.DeletionTimestamp != nil {
+		return webhooks.ToAdmissionResponseOK()
+	}
+
 	rules, err := getValidationRulesForVM(newVM)
 	if err != nil {
 		return webhooks.ToAdmissionResponseError(err)

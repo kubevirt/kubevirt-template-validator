@@ -1,6 +1,7 @@
 #!/bin/bash
 {
 RET=1
+echo '[test_id:2959] Start a VM with memory restrictions violation that succeeds with a warning'
 $KUBECTL apply -n default -f manifests/template-with-rules-incorrect-just-warning.yaml  || exit 2
 sleep 1s
 if $KUBECTL apply -f manifests/09-vm-from-template-with-incorrect-rules-just-warning.yaml ; then

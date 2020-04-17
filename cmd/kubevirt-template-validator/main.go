@@ -21,7 +21,8 @@ package main
 import (
 	"os"
 
-	"github.com/fromanirh/kubevirt-template-validator/internal/pkg/log"
+	"kubevirt.io/client-go/log"
+
 	"github.com/fromanirh/kubevirt-template-validator/internal/pkg/service"
 	validator "github.com/fromanirh/kubevirt-template-validator/pkg/template-validator"
 )

@@ -6,9 +6,7 @@ require (
 	github.com/davecgh/go-spew v1.1.1
 	github.com/evanphx/json-patch v4.5.0+incompatible // indirect
 	github.com/fromanirh/okdutil v0.0.1
-	github.com/go-kit/kit v0.8.0
 	github.com/go-openapi/jsonreference v0.19.2 // indirect
-	github.com/golang/glog v0.0.0-20160126235308-23def4e6c14b
 	github.com/golang/mock v0.0.0-20190713102442-dd8d2a22370e // indirect
 	github.com/onsi/ginkgo v1.8.0
 	github.com/onsi/gomega v1.5.1-0.20190515112211-6a48b4839f85

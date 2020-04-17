@@ -24,11 +24,10 @@ import (
 	templatev1 "github.com/openshift/api/template/v1"
 
 	k6tv1 "kubevirt.io/client-go/api/v1"
+	"kubevirt.io/client-go/log"
 
 	"github.com/fromanirh/kubevirt-template-validator/pkg/validation"
 	"github.com/fromanirh/kubevirt-template-validator/pkg/virtinformers"
-
-	"github.com/fromanirh/kubevirt-template-validator/internal/pkg/log"
 )
 
 const (

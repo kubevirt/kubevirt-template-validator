@@ -26,12 +26,12 @@ import (
 
 	"k8s.io/client-go/tools/cache"
 
+	"kubevirt.io/client-go/log"
 	k6tversion "kubevirt.io/client-go/version"
 
 	_ "github.com/fromanirh/okdutil/okd"
 
 	"github.com/fromanirh/kubevirt-template-validator/internal/pkg/k8sutils"
-	"github.com/fromanirh/kubevirt-template-validator/internal/pkg/log"
 	"github.com/fromanirh/kubevirt-template-validator/internal/pkg/service"
 	"github.com/fromanirh/kubevirt-template-validator/internal/pkg/version"
 

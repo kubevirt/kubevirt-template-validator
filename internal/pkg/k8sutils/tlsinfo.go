@@ -5,8 +5,7 @@ import (
 	"os"
 
 	"k8s.io/client-go/rest"
-
-	"github.com/fromanirh/kubevirt-template-validator/internal/pkg/log"
+	"kubevirt.io/client-go/log"
 )
 
 type TLSInfo struct {

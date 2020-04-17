@@ -9,6 +9,8 @@ github.com/emicklei/go-restful
 github.com/emicklei/go-restful/log
 # github.com/fromanirh/okdutil v0.0.1
 github.com/fromanirh/okdutil/okd
+# github.com/fsnotify/fsnotify v1.4.7
+github.com/fsnotify/fsnotify
 # github.com/go-kit/kit v0.8.0 => github.com/go-kit/kit v0.3.0
 github.com/go-kit/kit/log
 # github.com/go-logfmt/logfmt v0.4.0
@@ -160,11 +162,11 @@ golang.org/x/sys/windows
 golang.org/x/text/secure/bidirule
 golang.org/x/text/unicode/bidi
 golang.org/x/text/unicode/norm
-golang.org/x/text/width
 golang.org/x/text/encoding
 golang.org/x/text/encoding/charmap
 golang.org/x/text/encoding/htmlindex
 golang.org/x/text/transform
+golang.org/x/text/width
 golang.org/x/text/encoding/internal/identifier
 golang.org/x/text/encoding/internal
 golang.org/x/text/encoding/japanese

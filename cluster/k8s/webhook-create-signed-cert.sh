@@ -130,8 +130,8 @@ echo ${serverCert} | openssl base64 -d -A -out ${tmpdir}/server-cert.pem
 
 # create the secret with CA cert and server cert/key
 ${KUBECTL} create secret generic ${secret} \
-        --from-file=key.pem=${tmpdir}/server-key.pem \
-        --from-file=cert.pem=${tmpdir}/server-cert.pem \
+        --from-file=tls.key=${tmpdir}/server-key.pem \
+        --from-file=tls.crt=${tmpdir}/server-cert.pem \
         --dry-run -o yaml |
     ${KUBECTL} -n ${namespace} apply -f -
 

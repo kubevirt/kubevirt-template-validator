@@ -5,6 +5,7 @@ go 1.12
 require (
 	github.com/davecgh/go-spew v1.1.1
 	github.com/fromanirh/okdutil v0.0.1
+	github.com/fsnotify/fsnotify v1.4.7
 	github.com/go-openapi/jsonreference v0.19.2 // indirect
 	github.com/golang/mock v0.0.0-20190713102442-dd8d2a22370e // indirect
 	github.com/onsi/ginkgo v1.8.0

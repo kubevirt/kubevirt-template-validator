@@ -56,7 +56,7 @@ spec:
       serviceAccountName: template-validator
       containers:
         - name: webhook
-          image: quay.io/fromani/kubevirt-template-validator:v0.6.2
+          image: quay.io/fromani/kubevirt-template-validator:v0.6.6
           imagePullPolicy: Always
           resources:
             limits:
@@ -68,8 +68,7 @@ spec:
           args:
             - -v=2
             - --port=8443
-            - --cert-file=/etc/webhook/certs/cert.pem
-            - --key-file=/etc/webhook/certs/key.pem
+            - --cert-dir=/etc/webhook/certs
           volumeMounts:
             - name: virtualmachine-template-validator-certs
               mountPath: /etc/webhook/certs

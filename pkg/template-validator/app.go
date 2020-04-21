@@ -79,9 +79,6 @@ func (app *App) Run() {
 		return
 	}
 
-	app.TLSInfo.UpdateFromK8S()
-	defer app.TLSInfo.Clean()
-
 	stopChan := make(chan struct{}, 1)
 	defer close(stopChan)
 

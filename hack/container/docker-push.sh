@@ -10,6 +10,6 @@ if [ -z "$QUAY_BOT_PASS" ] || [ -z "$QUAY_BOT_USER" ]; then
 fi
 
 echo "$QUAY_BOT_PASS" | docker login -u="$QUAY_BOT_USER" --password-stdin quay.io
-docker build -t quay.io/fromani/kubevirt-template-validator:$VERSION .
-docker push quay.io/fromani/kubevirt-template-validator:$VERSION
+docker build -t quay.io/kubevirt/kubevirt-template-validator:$VERSION .
+docker push quay.io/kubevirt/kubevirt-template-validator:$VERSION
 docker logout quay.io

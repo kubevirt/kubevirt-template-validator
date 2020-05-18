@@ -5,7 +5,7 @@ SELF=$( realpath $0 )
 BASEPATH=$( dirname $SELF )
 
 (
-  kubectl wait --timeout=240s --for=condition=Ready -n kubevirt kv/kubevirt ;
+  kubectl wait --timeout=360s --for=condition=Ready -n kubevirt kv/kubevirt ;
 ) || {
   echo "Something went wrong"
   kubectl describe -n kubevirt kv/kubevirt

@@ -26,12 +26,12 @@ import (
 
 	"k8s.io/client-go/tools/cache"
 
+	"kubevirt.io/client-go/log"
 	k6tversion "kubevirt.io/client-go/version"
 
 	_ "github.com/fromanirh/okdutil/okd"
 
 	"github.com/fromanirh/kubevirt-template-validator/internal/pkg/k8sutils"
-	"github.com/fromanirh/kubevirt-template-validator/internal/pkg/log"
 	"github.com/fromanirh/kubevirt-template-validator/internal/pkg/service"
 	"github.com/fromanirh/kubevirt-template-validator/internal/pkg/version"
 
@@ -61,8 +61,7 @@ func (app *App) AddFlags() {
 
 	app.AddCommonFlags()
 
-	flag.StringVarP(&app.TLSInfo.CertFilePath, "cert-file", "c", "", "override path to TLS certificate - you need also the key to enable TLS")
-	flag.StringVarP(&app.TLSInfo.KeyFilePath, "key-file", "k", "", "override path to TLS key - you need also the cert to enable TLS")
+	flag.StringVarP(&app.TLSInfo.CertsDirectory, "cert-dir", "c", "", "specify path to the directory containing TLS key and certificate - this enables TLS")
 	flag.BoolVarP(&app.versionOnly, "version", "V", false, "show version and exit")
 	flag.BoolVarP(&app.skipInformers, "skip-informers", "S", false, "don't initialize informerers - use this only in devel mode")
 }
@@ -79,7 +78,7 @@ func (app *App) Run() {
 		return
 	}
 
-	app.TLSInfo.UpdateFromK8S()
+	app.TLSInfo.Init()
 	defer app.TLSInfo.Clean()
 
 	stopChan := make(chan struct{}, 1)
@@ -103,17 +102,24 @@ func (app *App) Run() {
 		log.Log.Infof("validator app: synched informers")
 	}
 
-	log.Log.Infof("validator app: running with TLSInfo%+v", app.TLSInfo)
+	log.Log.Infof("validator app: running with TLSInfo.CertsDirectory%+v", app.TLSInfo.CertsDirectory)
 
 	http.HandleFunc(validating.VMTemplateValidatePath, func(w http.ResponseWriter, r *http.Request) {
 		validating.ServeVMTemplateValidate(w, r)
 	})
 
 	if app.TLSInfo.IsEnabled() {
+		server := &http.Server{Addr: app.Address(), TLSConfig: app.TLSInfo.CrateTlsConfig()}
 		log.Log.Infof("validator app: TLS configured, serving over HTTPS on %s", app.Address())
-		http.ListenAndServeTLS(app.Address(), app.TLSInfo.CertFilePath, app.TLSInfo.KeyFilePath, nil)
+		if err := server.ListenAndServeTLS("", ""); err != nil {
+			log.Log.Criticalf("Error listening TLS: %s", err)
+			panic(err)
+		}
 	} else {
 		log.Log.Infof("validator app: TLS *NOT* configured, serving over HTTP on %s", app.Address())
-		http.ListenAndServe(app.Address(), nil)
+		if err := http.ListenAndServe(app.Address(), nil); err != nil {
+			log.Log.Criticalf("Error listening TLS: %s", err)
+			panic(err)
+		}
 	}
 }

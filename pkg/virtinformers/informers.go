@@ -34,8 +34,7 @@ import (
 	"k8s.io/apimachinery/pkg/fields"
 
 	"kubevirt.io/client-go/kubecli"
-
-	"github.com/fromanirh/kubevirt-template-validator/internal/pkg/log"
+	"kubevirt.io/client-go/log"
 )
 
 var once sync.Once

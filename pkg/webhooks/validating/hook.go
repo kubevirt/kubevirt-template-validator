@@ -27,9 +27,9 @@ import (
 
 	"github.com/davecgh/go-spew/spew"
 
-	"github.com/fromanirh/kubevirt-template-validator/pkg/webhooks"
+	"kubevirt.io/client-go/log"
 
-	"github.com/fromanirh/kubevirt-template-validator/internal/pkg/log"
+	"github.com/fromanirh/kubevirt-template-validator/pkg/webhooks"
 )
 
 const (

@@ -27,8 +27,8 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	k6tv1 "kubevirt.io/client-go/api/v1"
+	"kubevirt.io/client-go/log"
 
-	"github.com/fromanirh/kubevirt-template-validator/internal/pkg/log"
 	k6tobjs "github.com/fromanirh/kubevirt-template-validator/pkg/kubevirtobjs"
 )
 

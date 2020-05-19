@@ -1,70 +1,176 @@
 package k8sutils
 
 import (
+	"crypto/tls"
+	"crypto/x509"
+	"errors"
+	"fmt"
+	"io"
 	"io/ioutil"
-	"os"
+	"path/filepath"
+	"sync"
+	"time"
 
-	"k8s.io/client-go/rest"
+	"github.com/fsnotify/fsnotify"
+	"kubevirt.io/client-go/log"
+)
 
-	"github.com/fromanirh/kubevirt-template-validator/internal/pkg/log"
+const (
+	CertFilename = "tls.crt"
+	KeyFilename  = "tls.key"
+
+	retryInterval = 1 * time.Minute
 )
 
 type TLSInfo struct {
-	CertFilePath   string
-	KeyFilePath    string
-	certsDirectory string
-}
+	CertsDirectory string
 
-func (ti *TLSInfo) Clean() {
-	if ti.certsDirectory != "" {
-		os.RemoveAll(ti.certsDirectory)
-		ti.certsDirectory = ""
-		log.Log.V(4).Infof("TLSInfo cleaned up!")
-	}
+	cert           *tls.Certificate
+	certLock       sync.Mutex
+	stopCertReload chan struct{}
 }
 
 func (ti *TLSInfo) IsEnabled() bool {
-	return ti.CertFilePath != "" && ti.KeyFilePath != ""
+	return ti.CertsDirectory != ""
 }
 
-func (ti *TLSInfo) UpdateFromK8S() error {
-	var err error
-	if _, err = rest.InClusterConfig(); err != nil {
-		// is not a real error, rather a supported case. So, let's swallow the error
-		log.Log.V(3).Infof("running outside a K8S cluster")
-		return nil
-	}
-	if ti.IsEnabled() {
-		log.Log.V(3).Infof("TLSInfo already fully set")
-		return nil
+func (ti *TLSInfo) Init() {
+	if !ti.IsEnabled() {
+		return
 	}
 
-	// at least one between cert and key need to be set
-	ti.certsDirectory, err = ioutil.TempDir("", "certsdir")
+	directory := ti.CertsDirectory
+	filesChanged, watcherCloser, err := watchDirectory(directory)
 	if err != nil {
-		return err
+		panic(err)
 	}
-	namespace, err := GetNamespace()
-	if err != nil {
-		log.Log.Warningf("Error searching for namespace: %v", err)
-		return err
+
+	ti.stopCertReload = make(chan struct{})
+	notify(filesChanged)
+
+	go func() {
+		defer watcherCloser.Close()
+		for {
+			select {
+			case <-filesChanged:
+				err := ti.updateCertificates(directory)
+				if err != nil {
+					go func() {
+						time.Sleep(retryInterval)
+						notify(filesChanged)
+					}()
+				}
+			case <-ti.stopCertReload:
+				return
+			}
+		}
+	}()
+}
+
+func (ti *TLSInfo) Clean() {
+	if ti.stopCertReload != nil {
+		close(ti.stopCertReload)
 	}
-	certStore, err := GenerateSelfSignedCert(ti.certsDirectory, "kubevirt-template-validator", namespace)
+}
+
+func watchDirectory(directory string) (chan struct{}, io.Closer, error) {
+	watcher, err := fsnotify.NewWatcher()
 	if err != nil {
-		log.Log.Warningf("unable to generate certificates: %v", err)
+		log.Log.Reason(err).Critical("Failed to create an inotify watcher")
+		return nil, nil, err
+	}
+
+	err = watcher.Add(directory)
+	if err != nil {
+		watcher.Close()
+		log.Log.Reason(err).Criticalf("Failed to establish a watch on %s", directory)
+		return nil, nil, err
+	}
+
+	filesChanged := make(chan struct{}, 1)
+	go func() {
+		for {
+			select {
+			case event, ok := <-watcher.Events:
+				if !ok {
+					return
+				}
+				if event.Op != fsnotify.Chmod {
+					notify(filesChanged)
+				}
+			case err, ok := <-watcher.Errors:
+				if !ok {
+					return
+				}
+				log.Log.Reason(err).Errorf("An error occurred when watching %s", directory)
+			}
+		}
+	}()
+
+	return filesChanged, watcher, nil
+}
+
+func notify(channel chan struct{}) {
+	select {
+	case channel <- struct{}{}:
+	default:
+	}
+}
+
+func (ti *TLSInfo) updateCertificates(directory string) error {
+	cert, err := loadCertificates(directory)
+	if err != nil {
+		log.Log.Reason(err).Infof("failed to load the certificate in %s", directory)
 		return err
 	}
 
-	if ti.CertFilePath == "" {
-		ti.CertFilePath = certStore.CurrentPath()
-	} else {
-		log.Log.V(2).Infof("NOT overriding cert file %s with %s", ti.CertFilePath, certStore.CurrentPath())
-	}
-	if ti.KeyFilePath == "" {
-		ti.KeyFilePath = certStore.CurrentPath()
-	} else {
-		log.Log.V(2).Infof("NOT overriding key file %s with %s", ti.KeyFilePath, certStore.CurrentPath())
-	}
-	log.Log.V(3).Infof("running in a K8S cluster: with configuration %#v", *ti)
+	ti.certLock.Lock()
+	defer ti.certLock.Unlock()
+	ti.cert = cert
+
+	log.Log.Infof("certificate from %s with common name '%s' retrieved.", directory, cert.Leaf.Subject.CommonName)
 	return nil
+}
+
+func loadCertificates(directory string) (serverCrt *tls.Certificate, err error) {
+	certPath := filepath.Join(directory, CertFilename)
+	keyPath := filepath.Join(directory, KeyFilename)
+
+	certBytes, err := ioutil.ReadFile(certPath)
+	if err != nil {
+		return nil, err
+	}
+	keyBytes, err := ioutil.ReadFile(keyPath)
+	if err != nil {
+		return nil, err
+	}
+
+	cert, err := tls.X509KeyPair(certBytes, keyBytes)
+	if err != nil {
+		return nil, fmt.Errorf("failed to load certificate: %v\n", err)
+	}
+	leaf, err := x509.ParseCertificate(cert.Certificate[0])
+	if err != nil {
+		return nil, fmt.Errorf("failed to load leaf certificate: %v\n", err)
+	}
+	cert.Leaf = leaf
+	return &cert, nil
+}
+
+func (ti *TLSInfo) getCertificate() *tls.Certificate {
+	ti.certLock.Lock()
+	defer ti.certLock.Unlock()
+	return ti.cert
+}
+
+func (ti *TLSInfo) CrateTlsConfig() *tls.Config {
+	return &tls.Config{
+		GetCertificate: func(info *tls.ClientHelloInfo) (*tls.Certificate, error) {
+			cert := ti.getCertificate()
+			if cert == nil {
+				return nil, errors.New("no server certificate, server is not yet ready to receive traffic")
+			}
+			return cert, nil
+		},
+	}
 }

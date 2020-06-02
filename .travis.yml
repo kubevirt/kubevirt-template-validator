@@ -38,6 +38,12 @@ jobs:
         branch: master
         repo: $TRAVIS_REPO_SLUG
 
+addons:
+  apt:
+    packages:
+      - netcat
+      - openssl
+
 cache:
   directories:
   - cache

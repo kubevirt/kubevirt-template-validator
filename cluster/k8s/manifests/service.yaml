@@ -56,15 +56,8 @@ spec:
       serviceAccountName: template-validator
       containers:
         - name: webhook
-          image: quay.io/fromani/kubevirt-template-validator:v0.6.6
+          image: quay.io/kubevirt/kubevirt-template-validator:v0.6.6
           imagePullPolicy: Always
-          resources:
-            limits:
-              memory: 250Mi
-              cpu: 300m
-            requests:
-              memory: 250Mi
-              cpu: 300m
           args:
             - -v=2
             - --port=8443

@@ -53,7 +53,18 @@ var _ = Describe("Specialized", func() {
 				Name:    "SupportedChipset",
 				Path:    "jsonpath::.spec.domain.machine.type",
 				Message: "machine type must be a supported value",
-				Values:  []string{"q35"},
+				Values:  []string{"q35", "440fx"},
+			}
+			expectRuleApplicationSuccess(&r, vmCirros, vmRef)
+		})
+
+		It("Should apply enum rule to multiple values", func() {
+			r := validation.Rule{
+				Rule:    "enum",
+				Name:    "SupportedDiskBus",
+				Path:    "jsonpath::.spec.domain.devices.disks[*].disk.bus",
+				Message: "disk bus must be a supported value",
+				Values:  []string{"virtio", "sata"},
 			}
 			expectRuleApplicationSuccess(&r, vmCirros, vmRef)
 		})
@@ -65,6 +76,17 @@ var _ = Describe("Specialized", func() {
 				Path:    "jsonpath::.spec.domain.machine.type",
 				Message: "machine type must be a supported value",
 				Regex:   "q35|440fx",
+			}
+			expectRuleApplicationSuccess(&r, vmCirros, vmRef)
+		})
+
+		It("Should apply regex rule to multiple values", func() {
+			r := validation.Rule{
+				Rule:    "regex",
+				Name:    "SupportedDiskBus",
+				Path:    "jsonpath::.spec.domain.devices.disks[*].disk.bus",
+				Message: "disk bus must be a supported value",
+				Regex:   "virtio|sata",
 			}
 			expectRuleApplicationSuccess(&r, vmCirros, vmRef)
 		})
@@ -151,6 +173,29 @@ var _ = Describe("Specialized", func() {
 			expectRuleApplicationFailure(&r, vmCirros, vmRef)
 		})
 
+		It("Should apply enum rule to multiple values", func() {
+			r := validation.Rule{
+				Rule:    "enum",
+				Name:    "SupportedDiskBus",
+				Path:    "jsonpath::.spec.domain.devices.disks[*].disk.bus",
+				Message: "disk bus must be a supported value",
+				Values:  []string{"foo", "bar"},
+			}
+			expectRuleApplicationFailure(&r, vmCirros, vmRef)
+		})
+
+		It("Should error enum rule if values do not exist", func() {
+			vmCirros.Spec.Template.Spec.Domain.Devices.Disks = nil
+			r := validation.Rule{
+				Rule:    "enum",
+				Name:    "SupportedDiskBus",
+				Path:    "jsonpath::.spec.domain.devices.disks[*].disk.bus",
+				Message: "disk bus must be a supported value",
+				Values:  []string{"virtio"},
+			}
+			expectRuleApplicationError(&r, vmCirros, vmRef)
+		})
+
 		It("Should apply simple regex rules", func() {
 			r := validation.Rule{
 				Rule:    "regex",
@@ -161,6 +206,29 @@ var _ = Describe("Specialized", func() {
 			}
 			expectRuleApplicationFailure(&r, vmCirros, vmRef)
 		})
+
+		It("Should apply regex rule to multiple values", func() {
+			r := validation.Rule{
+				Rule:    "regex",
+				Name:    "SupportedDiskBus",
+				Path:    "jsonpath::.spec.domain.devices.disks[*].disk.bus",
+				Message: "disk bus must be a supported value",
+				Regex:   "foo|bar",
+			}
+			expectRuleApplicationFailure(&r, vmCirros, vmRef)
+		})
+
+		It("Should error regex rule if values do not exist", func() {
+			vmCirros.Spec.Template.Spec.Domain.Devices.Disks = nil
+			r := validation.Rule{
+				Rule:    "regex",
+				Name:    "SupportedDiskBus",
+				Path:    "jsonpath::.spec.domain.devices.disks[*].disk.bus",
+				Message: "disk bus must be a supported value",
+				Regex:   "virtio|sata",
+			}
+			expectRuleApplicationError(&r, vmCirros, vmRef)
+		})
 	})
 
 })
@@ -170,7 +238,16 @@ func expectRuleApplicationSuccess(r *validation.Rule, vm, ref *k6tv1.VirtualMach
 }
 
 func expectRuleApplicationFailure(r *validation.Rule, vm, ref *k6tv1.VirtualMachine) {
-	checkRuleApplication(r ,vm, ref, false)
+	checkRuleApplication(r, vm, ref, false)
+}
+
+func expectRuleApplicationError(r *validation.Rule, vm, ref *k6tv1.VirtualMachine) {
+	ra, err := r.Specialize(vm, ref)
+	Expect(err).To(BeNil())
+	Expect(ra).To(Not(BeNil()))
+
+	_, err = ra.Apply(vm, ref)
+	Expect(err).To(HaveOccurred())
 }
 
 func checkRuleApplication(r *validation.Rule, vm, ref *k6tv1.VirtualMachine, expected bool) {

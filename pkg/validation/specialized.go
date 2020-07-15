@@ -371,7 +371,6 @@ func NewRegexRule(r *Rule) (RuleApplier, error) {
 	if err != nil {
 		return nil, err
 	}
-
 	return &regexRule{
 		Ref:   r,
 		Regex: regex,

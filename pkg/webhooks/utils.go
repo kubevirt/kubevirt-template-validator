@@ -88,18 +88,6 @@ func ToAdmissionResponse(causes []metav1.StatusCause) *v1beta1.AdmissionResponse
 	}
 }
 
-func ValidationErrorsToAdmissionResponse(errs []error) *v1beta1.AdmissionResponse {
-	var causes []metav1.StatusCause
-	for _, e := range errs {
-		causes = append(causes,
-			metav1.StatusCause{
-				Message: e.Error(),
-			},
-		)
-	}
-	return ToAdmissionResponse(causes)
-}
-
 func GetAdmissionReviewVM(ar *v1beta1.AdmissionReview) (*k6tv1.VirtualMachine, *k6tv1.VirtualMachine, error) {
 	if ar.Request.Resource.Resource != "virtualmachines" {
 		return nil, nil, fmt.Errorf("expect resource %v to be '%s'", ar.Request.Resource, "virtualmachines")

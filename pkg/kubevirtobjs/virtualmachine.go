@@ -52,22 +52,22 @@ func NewDefaultVirtualMachine() *k6tv1.VirtualMachine {
 	vm.Spec.Template = &tmpl
 	k6tv1.SetObjectDefaults_VirtualMachine(&vm)
 	// workaround for k6t limitation
-	setObjectDefaults_VirtualMachine(&vm)
+	setVirtualMachineDefaults(&vm)
 	return &vm
 }
 
-func setObjectDefaults_VirtualMachine(in *k6tv1.VirtualMachine) {
+func setVirtualMachineDefaults(in *k6tv1.VirtualMachine) {
 	if in.Spec.Template != nil {
 		for i := range in.Spec.Template.Spec.Domain.Devices.Disks {
 			a := &in.Spec.Template.Spec.Domain.Devices.Disks[i]
 			if a.DiskDevice.CDRom != nil {
-				setDefaults_CDRomTarget(a.DiskDevice.CDRom)
+				setCDRomTargetDefaults(a.DiskDevice.CDRom)
 			}
 		}
 	}
 }
 
-func setDefaults_CDRomTarget(obj *k6tv1.CDRomTarget) {
+func setCDRomTargetDefaults(obj *k6tv1.CDRomTarget) {
 	_true := true
 	obj.ReadOnly = &_true
 	if obj.Tray == "" {

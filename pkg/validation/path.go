@@ -30,9 +30,9 @@ import (
 )
 
 var (
-	ErrInvalidJSONPath  error = fmt.Errorf("Invalid JSONPath")
-	ErrMismatchingTypes error = fmt.Errorf("Mismatching type(s)")
-	ErrWrongTypes       error = fmt.Errorf("Wrong type(s)")
+	ErrInvalidJSONPath  = fmt.Errorf("invalid JSONPath")
+	ErrMismatchingTypes = fmt.Errorf("mismatching type(s)")
+	ErrWrongTypes       = fmt.Errorf("wrong type(s)")
 )
 
 const (

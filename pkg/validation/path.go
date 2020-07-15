@@ -87,7 +87,11 @@ func (p *Path) Find(vm *k6tv1.VirtualMachine) error {
 }
 
 func (p *Path) Len() int {
-	return len(p.results)
+	totalCount := 0
+	for _, result := range p.results {
+		totalCount += len(result)
+	}
+	return totalCount
 }
 
 func (p *Path) AsString() ([]string, error) {

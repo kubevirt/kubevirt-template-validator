@@ -44,7 +44,7 @@ func (r *Rule) Specialize(vm, ref *k6tv1.VirtualMachine) (RuleApplier, error) {
 	case "enum":
 		return NewEnumRule(r, vm, ref)
 	case "regex":
-		return NewRegexRule(r, vm)
+		return NewRegexRule(r)
 	}
 	return nil, fmt.Errorf("Usupported rule: %s", r.Rule)
 }
@@ -130,9 +130,18 @@ func decodeInt64(obj interface{}, vm, ref *k6tv1.VirtualMachine) (int64, error) 
 	if val, ok := toInt64(obj); ok {
 		return val, nil
 	}
-	v, err := decodeInt64FromJSONPath(obj, vm)
+
+	jsonPath, ok := obj.(string)
+	if !ok {
+		return 0, fmt.Errorf("unsupported type %v (%v)", obj, reflect.TypeOf(obj).Name())
+	}
+	if !isJSONPath(jsonPath) {
+		return 0, fmt.Errorf("parameter is not JSONPath: %v", jsonPath)
+	}
+
+	v, err := decodeInt64FromJSONPath(jsonPath, vm)
 	if err != nil {
-		v, err = decodeInt64FromJSONPath(obj, ref)
+		v, err = decodeInt64FromJSONPath(jsonPath, ref)
 	}
 	return v, err
 }
@@ -148,42 +157,38 @@ func decodeString(s string, vm, ref *k6tv1.VirtualMachine) (string, error) {
 	return v, err
 }
 
-func decodeInt64FromJSONPath(obj interface{}, vm *k6tv1.VirtualMachine) (int64, error) {
-	if strVal, ok := obj.(string); ok && isJSONPath(strVal) {
-		p, err := NewPath(strVal)
-		if err != nil {
-			return 0, err
-		}
-		err = p.Find(vm)
-		if err != nil {
-			return 0, err
-		}
-		if p.Len() != 1 {
-			return 0, fmt.Errorf("expected one value, found %v", p.Len())
-		}
-		vals, err := p.AsInt64()
-		if err != nil {
-			return 0, err
-		}
-		return vals[0], nil
+func decodeInt64FromJSONPath(jsonPath string, vm *k6tv1.VirtualMachine) (int64, error) {
+	path, err := NewPath(jsonPath)
+	if err != nil {
+		return 0, err
 	}
-	return 0, fmt.Errorf("Unsupported type %v (%v)", obj, reflect.TypeOf(obj).Name())
+	err = path.Find(vm)
+	if err != nil {
+		return 0, err
+	}
+	if path.Len() != 1 {
+		return 0, fmt.Errorf("expected one value, found %v", path.Len())
+	}
+	vals, err := path.AsInt64()
+	if err != nil {
+		return 0, err
+	}
+	return vals[0], nil
 }
 
-func decodeJSONPathString(s string, vm *k6tv1.VirtualMachine) (string, error) {
-	p, err := NewPath(s)
+func decodeJSONPathString(jsonPath string, vm *k6tv1.VirtualMachine) (string, error) {
+	path, err := NewPath(jsonPath)
 	if err != nil {
 		return "", err
 	}
-	err = p.Find(vm)
+	err = path.Find(vm)
 	if err != nil {
 		return "", err
 	}
-
-	if p.Len() != 1 {
-		return "", fmt.Errorf("expected one value, found %v", p.Len())
+	if path.Len() != 1 {
+		return "", fmt.Errorf("expected one value, found %v", path.Len())
 	}
-	vals, err := p.AsString()
+	vals, err := path.AsString()
 	if err != nil {
 		return "", err
 	}
@@ -293,7 +298,7 @@ type regexRule struct {
 	Satisfied bool
 }
 
-func NewRegexRule(r *Rule, vm *k6tv1.VirtualMachine) (RuleApplier, error) {
+func NewRegexRule(r *Rule) (RuleApplier, error) {
 	return &regexRule{
 		Ref:   r,
 		Regex: r.Regex,

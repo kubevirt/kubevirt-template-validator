@@ -293,15 +293,20 @@ func (er *enumRule) String() string {
 
 type regexRule struct {
 	Ref       *Rule
-	Regex     string
+	Regex     *regexp.Regexp
 	Current   string
 	Satisfied bool
 }
 
 func NewRegexRule(r *Rule) (RuleApplier, error) {
+	regex, err := regexp.Compile(r.Regex)
+	if err != nil {
+		return nil, err
+	}
+
 	return &regexRule{
 		Ref:   r,
-		Regex: r.Regex,
+		Regex: regex,
 	}, nil
 }
 
@@ -311,8 +316,8 @@ func (rr *regexRule) Apply(vm, ref *k6tv1.VirtualMachine) (bool, error) {
 		return false, err
 	}
 	rr.Current = v
-	rr.Satisfied, err = regexp.MatchString(rr.Regex, rr.Current)
-	return rr.Satisfied, err
+	rr.Satisfied = rr.Regex.MatchString(rr.Current)
+	return rr.Satisfied, nil
 }
 
 func (rr *regexRule) String() string {

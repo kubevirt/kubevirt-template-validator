@@ -33,10 +33,10 @@ import (
 )
 
 var (
-	ErrUnrecognizedRuleType error = errors.New("Unrecognized Rule type")
-	ErrDuplicateRuleName    error = errors.New("Duplicate Rule Name")
-	ErrMissingRequiredKey   error = errors.New("Missing required key")
-	ErrUnsatisfiedRule      error = errors.New("rule is not satisfied")
+	ErrUnrecognizedRuleType = errors.New("unrecognized Rule type")
+	ErrDuplicateRuleName    = errors.New("duplicate Rule Name")
+	ErrMissingRequiredKey   = errors.New("missing required key")
+	ErrUnsatisfiedRule      = errors.New("rule is not satisfied")
 )
 
 func isValidRule(r string) bool {

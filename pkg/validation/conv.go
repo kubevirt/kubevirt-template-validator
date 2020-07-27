@@ -23,29 +23,23 @@ import (
 )
 
 func toInt64(obj interface{}) (int64, bool) {
-	if intVal, ok := obj.(int); ok {
-		return int64(intVal), true
-	}
-	if intVal, ok := obj.(int32); ok {
-		return int64(intVal), true
-	}
-	if intVal, ok := obj.(int64); ok {
-		return int64(intVal), true
-	}
-	if intVal, ok := obj.(uint); ok {
-		return int64(intVal), true
-	}
-	if intVal, ok := obj.(uint32); ok {
-		return int64(intVal), true
-	}
-	if intVal, ok := obj.(uint64); ok {
-		return int64(intVal), true
-	}
-	if floatVal, ok := obj.(float32); ok {
-		return int64(math.Round(float64(floatVal))), true
-	}
-	if floatVal, ok := obj.(float64); ok {
-		return int64(math.Round(floatVal)), true
+	switch val := obj.(type) {
+	case int:
+		return int64(val), true
+	case int32:
+		return int64(val), true
+	case int64:
+		return int64(val), true
+	case uint:
+		return int64(val), true
+	case uint32:
+		return int64(val), true
+	case uint64:
+		return int64(val), true
+	case float32:
+		return int64(math.Round(float64(val))), true
+	case float64:
+		return int64(math.Round(val)), true
 	}
 	return 0, false
 }

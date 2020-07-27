@@ -1,7 +1,7 @@
 sudo: required
 dist: xenial
 language: go
-go: "1.11"
+go: "1.12"
 
 branches:
   only:
@@ -10,8 +10,6 @@ branches:
 
 services:
 - docker
-
-go: "1.12"
 
 jobs:
   include:

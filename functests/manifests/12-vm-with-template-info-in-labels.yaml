@@ -2,10 +2,9 @@ apiVersion: kubevirt.io/v1alpha3
 kind: VirtualMachine
 metadata:
   creationTimestamp: null
-  labels:
-    kubevirt.io/vm: vm-test-12
   name: vm-test-12
   labels:
+    kubevirt.io/vm: vm-test-12
     vm.kubevirt.io/template: fedora-desktop-small-with-rules
     vm.kubevirt.io/template.namespace: default
 spec:

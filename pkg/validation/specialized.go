@@ -50,7 +50,7 @@ func (r *Rule) Specialize(vm, ref *k6tv1.VirtualMachine) (RuleApplier, error) {
 	case "regex":
 		return NewRegexRule(r)
 	}
-	return nil, fmt.Errorf("Usupported rule: %s", r.Rule)
+	return nil, fmt.Errorf("usupported rule: %s", r.Rule)
 }
 
 type Range struct {
@@ -371,7 +371,6 @@ func NewRegexRule(r *Rule) (RuleApplier, error) {
 	if err != nil {
 		return nil, err
 	}
-
 	return &regexRule{
 		Ref:   r,
 		Regex: regex,

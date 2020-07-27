@@ -19,7 +19,7 @@ var _ = Describe("Admission", func() {
 		It("should admit without template", func() {
 			newVM := k6tv1.VirtualMachine{}
 			oldVM := k6tv1.VirtualMachine{}
-			rules := []validation.Rule{}
+			var rules []validation.Rule
 
 			causes := validating.ValidateVMTemplate(rules, &newVM, &oldVM)
 

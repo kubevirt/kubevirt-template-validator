@@ -1,0 +1,49 @@
+apiVersion: kubevirt.io/v1alpha3
+kind: VirtualMachine
+metadata:
+  creationTimestamp: null
+  labels:
+    kubevirt.io/vm: vm-test-15
+  annotations:
+    # Adding template and template-namespace annotations to show that if the VM has
+    # its own validation rules, the template would not be fetched for validation
+    vm.kubevirt.io/template: fedora-desktop-small-with-rules
+    vm.kubevirt.io/template-namespace: default
+    vm.kubevirt.io/validations: |
+      [
+        {
+          "name": "LimitCores",
+          "path": "jsonpath::.spec.domain.cpu.cores",
+          "message": "Core amount not within range",
+          "rule": "integer",
+          "min": 1,
+          "max": 4
+        }
+      ]
+  name: vm-test-15
+spec:
+  running: false
+  template:
+    metadata:
+      creationTimestamp: null
+      labels:
+        kubevirt.io/vm: vm-test-15
+    spec:
+      domain:
+        cpu:
+          cores: 5
+        devices:
+          interfaces:
+          - name: default
+            bridge: {}
+        machine:
+          type: ""
+        resources:
+          requests:
+            memory: 64M
+      networks:
+      - name: default
+        pod: {}
+      evictionStrategy: LiveMigrate
+      terminationGracePeriodSeconds: 0
+status: {}

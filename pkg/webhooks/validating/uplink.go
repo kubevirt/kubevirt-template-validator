@@ -35,6 +35,13 @@ const (
 	annotationTemplateNamespaceKey    string = "vm.kubevirt.io/template.namespace"
 	annotationTemplateNamespaceOldKey string = "vm.kubevirt.io/template-namespace"
 	annotationValidationKey           string = "validations"
+
+	// This is the new annotation we will be using for VirtualMachines that carry their own validation rules
+	vmValidationAnnotationKey string = "vm.kubevirt.io/validations"
+
+	// If this annotation exists on a VM, it means that validation should be skipped.
+	// This annotation is used for troubleshooting, debugging and experimenting with templated VMs.
+	vmSkipValidationAnnotationKey string = "vm.kubevirt.io/skip-validations"
 )
 
 func getTemplateKeyFromMap(vmName, targetName string, targetMap map[string]string) (string, bool) {
@@ -112,7 +119,23 @@ func getValidationRulesFromTemplate(tmpl *templatev1.Template) ([]validation.Rul
 	return validation.ParseRules([]byte(tmpl.Annotations[annotationValidationKey]))
 }
 
+func getValidationRulesFromVM(vm *k6tv1.VirtualMachine) ([]validation.Rule, error) {
+	return validation.ParseRules([]byte(vm.Annotations[vmValidationAnnotationKey]))
+}
+
 func getValidationRulesForVM(vm *k6tv1.VirtualMachine) ([]validation.Rule, error) {
+	// If the VM has the 'vm.kubevirt.io/skip-validations' annotations, skip validation
+	if _, skip := vm.Annotations[vmSkipValidationAnnotationKey]; skip {
+		log.Log.V(8).Infof("skipped validation for VM [%s] in namespace [%s]", vm.Name, vm.Namespace)
+		return []validation.Rule{}, nil
+	}
+
+	// If the VM has the 'vm.kubevirt.io/validations' annotation applied, we will use the validation rules
+	// it contains instead of the validation rules from the template.
+	if vm.Annotations[vmValidationAnnotationKey] != "" {
+		return getValidationRulesFromVM(vm)
+	}
+
 	tmpl, err := getParentTemplateForVM(vm)
 	if tmpl == nil || err != nil {
 		// no template resources (kubevirt deployed on kubernetes, not OKD/OCP) or

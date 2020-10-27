@@ -1,0 +1,84 @@
+---
+kind: ServiceAccount
+apiVersion: v1
+metadata:
+  name: template-validator
+  namespace: "kubevirt"
+  labels:
+    kubevirt.io: virt-template-validator
+---
+apiVersion: rbac.authorization.k8s.io/v1beta1
+kind: ClusterRoleBinding
+metadata:
+  name: template-validator
+  namespace: "kubevirt"
+  labels:
+    kubevirt.io: virt-template-validator
+roleRef:
+  kind: ClusterRole
+  name: template:view
+  apiGroup: rbac.authorization.k8s.io
+subjects:
+  - kind: ServiceAccount
+    name: template-validator
+    namespace: "kubevirt"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: virt-template-validator
+  namespace: "kubevirt"
+  labels:
+    kubevirt.io: virt-template-validator
+  annotations:
+    service.beta.openshift.io/serving-cert-secret-name: virt-template-validator-certs
+spec:
+  ports:
+  - name: webhook
+    port: 443
+    targetPort: 8443
+  selector:
+    kubevirt.io: virt-template-validator
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: virt-template-validator
+  namespace: "kubevirt"
+  labels:
+    name: virt-template-validator
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      kubevirt.io: virt-template-validator
+  template:
+    metadata:
+      name: virt-template-validator
+      labels:
+        kubevirt.io: virt-template-validator
+    spec:
+      serviceAccountName: template-validator
+      containers:
+        - name: webhook
+          image: quay.io/kubevirt/kubevirt-template-validator:RELEASE_TAG
+          imagePullPolicy: Always
+          args:
+            - -v=2
+            - --port=8443
+            - --cert-dir=/etc/webhook/certs
+          volumeMounts:
+            - name: tls
+              mountPath: /etc/webhook/certs
+              readOnly: true
+          securityContext:
+            readOnlyRootFilesystem: true
+          ports:
+          - name: webhook
+            containerPort: 8443
+            protocol: TCP
+      volumes:
+        - name: tls
+          secret:
+            secretName: virt-template-validator-certs
+

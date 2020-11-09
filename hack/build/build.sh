@@ -8,12 +8,16 @@ if [ -z "$1" ]; then
 fi
 
 TAG="$1"  #TODO: validate tag is vX.Y.Z
-VERSIONDIR="internal/pkg/version"
-VERSIONFILE="${VERSIONDIR}/version.go"
-
-mkdir -p ${VERSIONDIR} && ./hack/build/genver.sh ${TAG} > ${VERSIONFILE}
+COMPONENT="kubevirt-template-validator"
+BRANCH=$( git rev-parse --abbrev-ref HEAD )
+REVISION=$( git rev-parse --short HEAD )
 
 export GO111MODULE=on
 export GOPROXY=off
 export GOFLAGS=-mod=vendor
-cd cmd/kubevirt-template-validator && go build -v .
+cd cmd/kubevirt-template-validator && \
+    go build -v -ldflags="\
+-X 'github.com/fromanirh/kubevirt-template-validator/internal/pkg/version.COMPONENT=$COMPONENT'\
+-X 'github.com/fromanirh/kubevirt-template-validator/internal/pkg/version.BRANCH=$BRANCH'\
+-X 'github.com/fromanirh/kubevirt-template-validator/internal/pkg/version.REVISION=$REVISION'\
+-X 'github.com/fromanirh/kubevirt-template-validator/internal/pkg/version.VERSION=$TAG'" .

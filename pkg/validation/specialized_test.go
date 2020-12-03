@@ -3,6 +3,8 @@ package validation_test
 import (
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
+	k8sv1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
 
 	k6tv1 "kubevirt.io/client-go/api/v1"
 
@@ -228,6 +230,81 @@ var _ = Describe("Specialized", func() {
 				Regex:   "virtio|sata",
 			}
 			expectRuleApplicationError(&r, vmCirros, vmRef)
+		})
+
+		It("Should post message when value is lower", func() {
+			vmCirros.Spec.Template.Spec.Domain.Resources.Requests = k8sv1.ResourceList{
+				k8sv1.ResourceMemory: resource.MustParse("1M"),
+			}
+
+			r := validation.Rule{
+				Rule:    "integer",
+				Name:    "EnoughMemory",
+				Path:    "jsonpath::.spec.domain.resources.requests.memory",
+				Message: "Memory size not specified",
+				Min:     64 * 1024 * 1024,
+				Max:     512 * 1024 * 1024,
+			}
+			ra, err := r.Specialize(vmCirros, vmRef)
+			Expect(err).To(BeNil())
+			Expect(ra).To(Not(BeNil()))
+
+			ok, err := ra.Apply(vmCirros, vmRef)
+			Expect(err).To(BeNil())
+			Expect(ok).To(Equal(false))
+
+			result := ra.String()
+			Expect(result).To(Equal("value 1000000 is lower than minimum [67108864]"))
+		})
+
+		It("Should post message when value is higher", func() {
+			vmCirros.Spec.Template.Spec.Domain.Resources.Requests = k8sv1.ResourceList{
+				k8sv1.ResourceMemory: resource.MustParse("10G"),
+			}
+
+			r := validation.Rule{
+				Rule:    "integer",
+				Name:    "EnoughMemory",
+				Path:    "jsonpath::.spec.domain.resources.requests.memory",
+				Message: "Memory size not specified",
+				Min:     64 * 1024 * 1024,
+				Max:     512 * 1024 * 1024,
+			}
+			ra, err := r.Specialize(vmCirros, vmRef)
+			Expect(err).To(BeNil())
+			Expect(ra).To(Not(BeNil()))
+
+			ok, err := ra.Apply(vmCirros, vmRef)
+			Expect(err).To(BeNil())
+			Expect(ok).To(Equal(false))
+
+			result := ra.String()
+			Expect(result).To(Equal("value 10000000000 is higher than maximum [536870912]"))
+		})
+
+		It("Should post message when value is winthin limits", func() {
+			vmCirros.Spec.Template.Spec.Domain.Resources.Requests = k8sv1.ResourceList{
+				k8sv1.ResourceMemory: resource.MustParse("68M"),
+			}
+
+			r := validation.Rule{
+				Rule:    "integer",
+				Name:    "EnoughMemory",
+				Path:    "jsonpath::.spec.domain.resources.requests.memory",
+				Message: "Memory size not specified",
+				Min:     64 * 1024 * 1024,
+				Max:     512 * 1024 * 1024,
+			}
+			ra, err := r.Specialize(vmCirros, vmRef)
+			Expect(err).To(BeNil())
+			Expect(ra).To(Not(BeNil()))
+
+			ok, err := ra.Apply(vmCirros, vmRef)
+			Expect(err).To(BeNil())
+			Expect(ok).To(Equal(true))
+
+			result := ra.String()
+			Expect(result).To(Equal("All values [68000000] are in interval [67108864, 536870912]"))
 		})
 	})
 

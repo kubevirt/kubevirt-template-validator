@@ -242,7 +242,19 @@ func (ir *intRule) String() string {
 	if ir.Satisfied {
 		return fmt.Sprintf("All values %v are in interval [%s, %s]", ir.Current, lowerBound, upperBound)
 	} else {
-		return fmt.Sprintf("Some of values %v are not in interval [%s, %s]", ir.Current, lowerBound, upperBound)
+		errorMessage := ""
+		for i, value := range ir.Current {
+			if ir.Value.MinSet && value < ir.Value.Min {
+				errorMessage += fmt.Sprintf("value %v is lower than minimum [%s]", value, lowerBound)
+			}
+			if ir.Value.MaxSet && value > ir.Value.Max {
+				errorMessage += fmt.Sprintf("value %v is higher than maximum [%s]", value, upperBound)
+			}
+			if i != (len(ir.Current) - 1) {
+				errorMessage += ", "
+			}
+		}
+		return errorMessage
 	}
 }
 

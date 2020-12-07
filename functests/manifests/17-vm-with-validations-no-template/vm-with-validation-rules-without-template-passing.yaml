@@ -1,0 +1,48 @@
+apiVersion: kubevirt.io/v1alpha3
+kind: VirtualMachine
+metadata:
+  creationTimestamp: null
+  labels:
+    kubevirt.io/vm: vm-test-17
+  annotations:
+    # Adding template and template-namespace annotations to show that if the VM has
+    # its own validation rules, the template would not be fetched for validation
+    # No template annotations
+    vm.kubevirt.io/validations: |
+      [
+        {
+          "name": "LimitCores",
+          "path": "jsonpath::.spec.domain.cpu.cores",
+          "message": "Core amount not within range",
+          "rule": "integer",
+          "min": 1,
+          "max": 6
+        }
+      ]
+  name: vm-test-17
+spec:
+  running: false
+  template:
+    metadata:
+      creationTimestamp: null
+      labels:
+        kubevirt.io/vm: vm-test-17
+    spec:
+      domain:
+        cpu:
+          cores: 5
+        devices:
+          interfaces:
+          - name: default
+            bridge: {}
+        machine:
+          type: ""
+        resources:
+          requests:
+            memory: 64M
+      networks:
+      - name: default
+        pod: {}
+      evictionStrategy: LiveMigrate
+      terminationGracePeriodSeconds: 0
+status: {}

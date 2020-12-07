@@ -1,13 +1,13 @@
-package validating_test
+package validating
 
 import (
+	"encoding/json"
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	k6tv1 "kubevirt.io/client-go/api/v1"
 
 	"github.com/fromanirh/kubevirt-template-validator/pkg/validation"
-	"github.com/fromanirh/kubevirt-template-validator/pkg/webhooks/validating"
 )
 
 var _ = Describe("Admission", func() {
@@ -17,7 +17,7 @@ var _ = Describe("Admission", func() {
 			oldVM := k6tv1.VirtualMachine{}
 			var rules []validation.Rule
 
-			causes := validating.ValidateVMTemplate(rules, &newVM, &oldVM)
+			causes := ValidateVMTemplate(rules, &newVM, &oldVM)
 
 			Expect(len(causes)).To(Equal(0))
 		})
@@ -52,7 +52,7 @@ var _ = Describe("Admission", func() {
 				Min:     1,
 			}}
 
-			causes := validating.ValidateVMTemplate(rules, &vm, &k6tv1.VirtualMachine{})
+			causes := ValidateVMTemplate(rules, &vm, &k6tv1.VirtualMachine{})
 			Expect(len(causes)).To(Equal(0))
 		})
 
@@ -65,7 +65,7 @@ var _ = Describe("Admission", func() {
 				Min:     1,
 			}}
 
-			causes := validating.ValidateVMTemplate(rules, &vm, &k6tv1.VirtualMachine{})
+			causes := ValidateVMTemplate(rules, &vm, &k6tv1.VirtualMachine{})
 			Expect(len(causes)).To(Equal(0))
 		})
 
@@ -78,8 +78,34 @@ var _ = Describe("Admission", func() {
 				Min:     1,
 			}}
 
-			causes := validating.ValidateVMTemplate(rules, &vm, &k6tv1.VirtualMachine{})
+			causes := ValidateVMTemplate(rules, &vm, &k6tv1.VirtualMachine{})
 			Expect(len(causes)).To(Equal(0))
+		})
+	})
+
+	Context("vm validation annotation", func() {
+		It("validation annotation on a VM should be used if it exists", func() {
+			ruleName := "vmRule"
+			rules, err := json.Marshal([]validation.Rule{{
+				Name: ruleName,
+			}})
+			Expect(err).ToNot(HaveOccurred())
+
+			vm := &k6tv1.VirtualMachine{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "test-vm",
+					Annotations: map[string]string{
+						vmValidationAnnotationKey: string(rules),
+					},
+				},
+				Spec: k6tv1.VirtualMachineSpec{},
+			}
+
+			vmRules, err := getValidationRulesForVM(vm)
+			Expect(err).ToNot(HaveOccurred())
+
+			Expect(len(vmRules)).To(Equal(1))
+			Expect(vmRules[0].Name).To(Equal(ruleName))
 		})
 	})
 })

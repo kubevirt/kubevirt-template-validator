@@ -30,7 +30,7 @@ import (
 )
 
 var (
-	ErrInvalidJSONPath  = fmt.Errorf("invalid JSONPath")
+	ErrInvalidJSONPath = fmt.Errorf("invalid JSONPath")
 )
 
 const (

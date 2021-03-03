@@ -10,14 +10,14 @@ fi
 TAG="$1"  #TODO: validate tag is vX.Y.Z
 COMPONENT="kubevirt-template-validator"
 LDFLAGS="\
--X 'github.com/fromanirh/kubevirt-template-validator/internal/pkg/version.COMPONENT=$COMPONENT' \
--X 'github.com/fromanirh/kubevirt-template-validator/internal/pkg/version.VERSION=$TAG' "
+-X 'github.com/kubevirt/kubevirt-template-validator/internal/pkg/version.COMPONENT=$COMPONENT' \
+-X 'github.com/kubevirt/kubevirt-template-validator/internal/pkg/version.VERSION=$TAG' "
 if git rev-parse &>/dev/null; then
     BRANCH=$( git rev-parse --abbrev-ref HEAD )
     REVISION=$( git rev-parse --short HEAD )
     LDFLAGS="${LDFLAGS}\
--X 'github.com/fromanirh/kubevirt-template-validator/internal/pkg/version.BRANCH=$BRANCH' \
--X 'github.com/fromanirh/kubevirt-template-validator/internal/pkg/version.REVISION=$REVISION' "
+-X 'github.com/kubevirt/kubevirt-template-validator/internal/pkg/version.BRANCH=$BRANCH' \
+-X 'github.com/kubevirt/kubevirt-template-validator/internal/pkg/version.REVISION=$REVISION' "
 fi
 
 export GO111MODULE=on

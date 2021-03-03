@@ -1,4 +1,4 @@
-module github.com/fromanirh/kubevirt-template-validator
+module github.com/kubevirt/kubevirt-template-validator
 
 go 1.13
 

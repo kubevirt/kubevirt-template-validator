@@ -31,12 +31,12 @@ import (
 
 	_ "github.com/fromanirh/okdutil/okd"
 
-	"github.com/fromanirh/kubevirt-template-validator/internal/pkg/k8sutils"
-	"github.com/fromanirh/kubevirt-template-validator/internal/pkg/service"
-	"github.com/fromanirh/kubevirt-template-validator/internal/pkg/version"
+	"github.com/kubevirt/kubevirt-template-validator/internal/pkg/k8sutils"
+	"github.com/kubevirt/kubevirt-template-validator/internal/pkg/service"
+	"github.com/kubevirt/kubevirt-template-validator/internal/pkg/version"
 
-	"github.com/fromanirh/kubevirt-template-validator/pkg/virtinformers"
-	"github.com/fromanirh/kubevirt-template-validator/pkg/webhooks/validating"
+	"github.com/kubevirt/kubevirt-template-validator/pkg/virtinformers"
+	"github.com/kubevirt/kubevirt-template-validator/pkg/webhooks/validating"
 )
 
 const (

@@ -26,8 +26,8 @@ import (
 	k6tv1 "kubevirt.io/client-go/api/v1"
 	"kubevirt.io/client-go/log"
 
-	"github.com/fromanirh/kubevirt-template-validator/pkg/validation"
-	"github.com/fromanirh/kubevirt-template-validator/pkg/virtinformers"
+	"github.com/kubevirt/kubevirt-template-validator/pkg/validation"
+	"github.com/kubevirt/kubevirt-template-validator/pkg/virtinformers"
 )
 
 const (

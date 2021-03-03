@@ -12,7 +12,7 @@ the VM object being validated.
 
 Under no circumstances the validating webhook is allowed to mutate any of the objects (VM, template) it works with.
 
-[![Go Report Card](https://goreportcard.com/badge/github.com/fromanirh/kubevirt-template-validator)](https://goreportcard.com/report/github.com/fromanirh/kubevirt-template-validator)
+[![Go Report Card](https://goreportcard.com/badge/github.com/kubevirt/kubevirt-template-validator)](https://goreportcard.com/report/github.com/fromanirh/kubevirt-template-validator)
 
 ## License
 

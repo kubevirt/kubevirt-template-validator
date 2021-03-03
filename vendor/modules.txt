@@ -11,9 +11,6 @@ github.com/davecgh/go-spew/spew
 # github.com/emicklei/go-restful v2.10.0+incompatible
 github.com/emicklei/go-restful
 github.com/emicklei/go-restful/log
-# github.com/fromanirh/okdutil v0.0.1
-## explicit
-github.com/fromanirh/okdutil/okd
 # github.com/fsnotify/fsnotify v1.4.9
 ## explicit
 github.com/fsnotify/fsnotify
@@ -126,21 +123,9 @@ github.com/onsi/gomega/matchers/support/goraph/util
 github.com/onsi/gomega/types
 # github.com/openshift/api v0.0.0 => github.com/openshift/api v0.0.0-20200930075302-db52bc4ef99f
 ## explicit
-github.com/openshift/api/apps/v1
-github.com/openshift/api/authorization/v1
-github.com/openshift/api/build/v1
-github.com/openshift/api/image/docker10
-github.com/openshift/api/image/dockerpre012
-github.com/openshift/api/image/v1
-github.com/openshift/api/network/v1
-github.com/openshift/api/oauth/v1
 github.com/openshift/api/pkg/serialization
-github.com/openshift/api/project/v1
-github.com/openshift/api/quota/v1
-github.com/openshift/api/route/v1
 github.com/openshift/api/security/v1
 github.com/openshift/api/template/v1
-github.com/openshift/api/user/v1
 # github.com/openshift/client-go v0.0.0 => github.com/openshift/client-go v0.0.0-20200929181438-91d71ef2122c
 ## explicit
 github.com/openshift/client-go/security/clientset/versioned/scheme

@@ -4,7 +4,6 @@ go 1.15
 
 require (
 	github.com/davecgh/go-spew v1.1.1
-	github.com/fromanirh/okdutil v0.0.1
 	github.com/fsnotify/fsnotify v1.4.9
 	github.com/onsi/ginkgo v1.12.1
 	github.com/onsi/gomega v1.10.1

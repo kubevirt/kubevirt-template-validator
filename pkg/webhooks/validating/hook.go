@@ -22,7 +22,7 @@ import (
 	"encoding/json"
 	"net/http"
 
-	"k8s.io/api/admission/v1beta1"
+	admissionv1 "k8s.io/api/admission/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 
 	"github.com/davecgh/go-spew/spew"
@@ -40,9 +40,9 @@ func ServeVMTemplateValidate(resp http.ResponseWriter, req *http.Request) {
 	serve(resp, req, admitVMTemplate)
 }
 
-type admitFunc func(*v1beta1.AdmissionReview) *v1beta1.AdmissionResponse
+type admitFunc func(*admissionv1.AdmissionReview) *admissionv1.AdmissionResponse
 
-func admitVMTemplate(ar *v1beta1.AdmissionReview) *v1beta1.AdmissionResponse {
+func admitVMTemplate(ar *admissionv1.AdmissionReview) *admissionv1.AdmissionResponse {
 	newVM, oldVM, err := webhooks.GetAdmissionReviewVM(ar)
 	if err != nil {
 		return webhooks.ToAdmissionResponseError(err)
@@ -70,7 +70,7 @@ func admitVMTemplate(ar *v1beta1.AdmissionReview) *v1beta1.AdmissionResponse {
 }
 
 func serve(resp http.ResponseWriter, req *http.Request, admit admitFunc) {
-	response := v1beta1.AdmissionReview{}
+	response := admissionv1.AdmissionReview{}
 	review, err := webhooks.GetAdmissionReview(req)
 
 	log.Log.V(8).Infof("evaluating admission")

@@ -24,14 +24,13 @@ import (
 	"io/ioutil"
 	"net/http"
 
-	"k8s.io/api/admission/v1beta1"
+	admissionv1 "k8s.io/api/admission/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	k6tv1 "kubevirt.io/client-go/api/v1"
 )
 
-// GetAdmissionReview
-func GetAdmissionReview(r *http.Request) (*v1beta1.AdmissionReview, error) {
+func GetAdmissionReview(r *http.Request) (*admissionv1.AdmissionReview, error) {
 	var body []byte
 	if r.Body != nil {
 		if data, err := ioutil.ReadAll(r.Body); err == nil {
@@ -45,20 +44,19 @@ func GetAdmissionReview(r *http.Request) (*v1beta1.AdmissionReview, error) {
 		return nil, fmt.Errorf("contentType=%s, expect application/json", contentType)
 	}
 
-	ar := &v1beta1.AdmissionReview{}
+	ar := &admissionv1.AdmissionReview{}
 	err := json.Unmarshal(body, ar)
 	return ar, err
 }
 
-func ToAdmissionResponseOK() *v1beta1.AdmissionResponse {
-	reviewResponse := v1beta1.AdmissionResponse{}
+func ToAdmissionResponseOK() *admissionv1.AdmissionResponse {
+	reviewResponse := admissionv1.AdmissionResponse{}
 	reviewResponse.Allowed = true
 	return &reviewResponse
 }
 
-// ToAdmissionResponseError
-func ToAdmissionResponseError(err error) *v1beta1.AdmissionResponse {
-	return &v1beta1.AdmissionResponse{
+func ToAdmissionResponseError(err error) *admissionv1.AdmissionResponse {
+	return &admissionv1.AdmissionResponse{
 		Result: &metav1.Status{
 			Message: err.Error(),
 			Code:    http.StatusBadRequest,
@@ -66,7 +64,7 @@ func ToAdmissionResponseError(err error) *v1beta1.AdmissionResponse {
 	}
 }
 
-func ToAdmissionResponse(causes []metav1.StatusCause) *v1beta1.AdmissionResponse {
+func ToAdmissionResponse(causes []metav1.StatusCause) *admissionv1.AdmissionResponse {
 	globalMessage := ""
 	for _, cause := range causes {
 		if globalMessage == "" {
@@ -76,7 +74,7 @@ func ToAdmissionResponse(causes []metav1.StatusCause) *v1beta1.AdmissionResponse
 		}
 	}
 
-	return &v1beta1.AdmissionResponse{
+	return &admissionv1.AdmissionResponse{
 		Result: &metav1.Status{
 			Message: globalMessage,
 			Reason:  metav1.StatusReasonInvalid,
@@ -88,7 +86,7 @@ func ToAdmissionResponse(causes []metav1.StatusCause) *v1beta1.AdmissionResponse
 	}
 }
 
-func GetAdmissionReviewVM(ar *v1beta1.AdmissionReview) (*k6tv1.VirtualMachine, *k6tv1.VirtualMachine, error) {
+func GetAdmissionReviewVM(ar *admissionv1.AdmissionReview) (*k6tv1.VirtualMachine, *k6tv1.VirtualMachine, error) {
 	if ar.Request.Resource.Resource != "virtualmachines" {
 		return nil, nil, fmt.Errorf("expect resource %v to be '%s'", ar.Request.Resource, "virtualmachines")
 	}
@@ -102,7 +100,7 @@ func GetAdmissionReviewVM(ar *v1beta1.AdmissionReview) (*k6tv1.VirtualMachine, *
 		return nil, nil, err
 	}
 
-	if ar.Request.Operation == v1beta1.Update {
+	if ar.Request.Operation == admissionv1.Update {
 		raw := ar.Request.OldObject.Raw
 		oldVM := k6tv1.VirtualMachine{}
 		err = json.Unmarshal(raw, &oldVM)

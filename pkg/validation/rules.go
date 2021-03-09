@@ -36,15 +36,15 @@ type Rule struct {
 	Path    string `json:"path"`
 	Message string `json:"message"`
 	// optional keys
-	Valid       string `json:"valid",omitempty`
-	JustWarning bool   `json:"justWarning",omitempty"`
+	Valid       string `json:"valid,omitempty"`
+	JustWarning bool   `json:"justWarning,omitempty"`
 	// arguments (optional keys)
-	Values    []string    `json:"values",omitempty"`
-	Min       interface{} `json:"min",omitempty`
-	Max       interface{} `json:"max",omitempty`
-	MinLength interface{} `json:"minLength",omitempty`
-	MaxLength interface{} `json:"maxLength",omitempty`
-	Regex     string      `json:"regex",omitempty"`
+	Values    []string    `json:"values,omitempty"`
+	Min       interface{} `json:"min,omitempty"`
+	Max       interface{} `json:"max,omitempty"`
+	MinLength interface{} `json:"minLength,omitempty"`
+	MaxLength interface{} `json:"maxLength,omitempty"`
+	Regex     string      `json:"regex,omitempty"`
 }
 
 func (r *Rule) findPathOn(vm *k6tv1.VirtualMachine) (bool, error) {

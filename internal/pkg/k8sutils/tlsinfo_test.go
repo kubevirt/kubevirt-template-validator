@@ -17,7 +17,7 @@ import (
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
 
-	"github.com/fromanirh/kubevirt-template-validator/internal/pkg/k8sutils"
+	"github.com/kubevirt/kubevirt-template-validator/internal/pkg/k8sutils"
 )
 
 var _ = Describe("TlsInfo", func() {

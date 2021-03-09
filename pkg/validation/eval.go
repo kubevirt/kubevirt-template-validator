@@ -29,7 +29,7 @@ import (
 	k6tv1 "kubevirt.io/client-go/api/v1"
 	"kubevirt.io/client-go/log"
 
-	k6tobjs "github.com/fromanirh/kubevirt-template-validator/pkg/kubevirtobjs"
+	k6tobjs "github.com/kubevirt/kubevirt-template-validator/pkg/kubevirtobjs"
 )
 
 var (

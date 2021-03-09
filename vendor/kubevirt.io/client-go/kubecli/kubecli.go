@@ -31,16 +31,19 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/serializer"
 	"k8s.io/client-go/discovery"
+	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/rest"
 	restclient "k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
 
-	networkclient "github.com/k8snetworkplumbingwg/network-attachment-definition-client/pkg/client/clientset/versioned"
-
 	v1 "kubevirt.io/client-go/api/v1"
-	cdiclient "kubevirt.io/containerized-data-importer/pkg/client/clientset/versioned"
+	cdiclient "kubevirt.io/client-go/generated/containerized-data-importer/clientset/versioned"
+	k8ssnapshotclient "kubevirt.io/client-go/generated/external-snapshotter/clientset/versioned"
+	generatedclient "kubevirt.io/client-go/generated/kubevirt/clientset/versioned"
+	networkclient "kubevirt.io/client-go/generated/network-attachment-definition-client/clientset/versioned"
+	promclient "kubevirt.io/client-go/generated/prometheus-operator/clientset/versioned"
 )
 
 var (
@@ -51,9 +54,22 @@ var (
 var virtclient KubevirtClient
 var once sync.Once
 
-func init() {
-	flag.StringVar(&kubeconfig, "kubeconfig", "", "absolute path to the kubeconfig file")
-	flag.StringVar(&master, "master", "", "master url")
+// Init adds the default `kubeconfig` and `master` flags. It is not added by default to allow integration into
+// the different controller generators which normally add these flags too.
+func Init() {
+	if flag.CommandLine.Lookup("kubeconfig") == nil {
+		flag.StringVar(&kubeconfig, "kubeconfig", "", "absolute path to the kubeconfig file")
+	}
+	if flag.CommandLine.Lookup("master") == nil {
+		flag.StringVar(&master, "master", "", "master url")
+	}
+}
+
+func FlagSet() *flag.FlagSet {
+	set := flag.NewFlagSet(os.Args[0], flag.ExitOnError)
+	set.StringVar(&kubeconfig, "kubeconfig", "", "absolute path to the kubeconfig file")
+	set.StringVar(&master, "master", "", "master url")
+	return set
 }
 
 func GetKubevirtSubresourceClientFromFlags(master string, kubeconfig string) (KubevirtClient, error) {
@@ -62,8 +78,8 @@ func GetKubevirtSubresourceClientFromFlags(master string, kubeconfig string) (Ku
 		return nil, err
 	}
 
-	config.GroupVersion = &v1.SubresourceGroupVersion
-	config.NegotiatedSerializer = serializer.DirectCodecFactory{CodecFactory: scheme.Codecs}
+	config.GroupVersion = &v1.SubresourceStorageGroupVersion
+	config.NegotiatedSerializer = serializer.WithoutConversionCodecFactory{CodecFactory: scheme.Codecs}
 	config.APIPath = "/apis"
 	config.ContentType = runtime.ContentTypeJSON
 
@@ -73,6 +89,11 @@ func GetKubevirtSubresourceClientFromFlags(master string, kubeconfig string) (Ku
 	}
 
 	coreClient, err := kubernetes.NewForConfig(config)
+	if err != nil {
+		return nil, err
+	}
+
+	generatedKubeVirtClient, err := generatedclient.NewForConfig(config)
 	if err != nil {
 		return nil, err
 	}
@@ -102,16 +123,35 @@ func GetKubevirtSubresourceClientFromFlags(master string, kubeconfig string) (Ku
 		return nil, err
 	}
 
+	prometheusClient, err := promclient.NewForConfig(config)
+	if err != nil {
+		return nil, err
+	}
+
+	snapshotClient, err := k8ssnapshotclient.NewForConfig(config)
+	if err != nil {
+		return nil, err
+	}
+
+	dynamicClient, err := dynamic.NewForConfig(config)
+	if err != nil {
+		return nil, err
+	}
+
 	return &kubevirt{
 		master,
 		kubeconfig,
 		restClient,
 		config,
+		generatedKubeVirtClient,
 		cdiClient,
 		networkClient,
 		extensionsClient,
 		secClient,
 		discoveryClient,
+		prometheusClient,
+		snapshotClient,
+		dynamicClient,
 		coreClient,
 	}, nil
 }
@@ -187,8 +227,8 @@ var GetKubevirtClientFromClientConfig = func(cmdConfig clientcmd.ClientConfig) (
 }
 
 func GetKubevirtClientFromRESTConfig(config *rest.Config) (KubevirtClient, error) {
-	config.GroupVersion = &v1.GroupVersion
-	config.NegotiatedSerializer = serializer.DirectCodecFactory{CodecFactory: v1.Codecs}
+	config.GroupVersion = &v1.StorageGroupVersion
+	config.NegotiatedSerializer = serializer.WithoutConversionCodecFactory{CodecFactory: v1.Codecs}
 	config.APIPath = "/apis"
 	config.ContentType = runtime.ContentTypeJSON
 	if config.UserAgent == "" {
@@ -201,6 +241,11 @@ func GetKubevirtClientFromRESTConfig(config *rest.Config) (KubevirtClient, error
 	}
 
 	coreClient, err := kubernetes.NewForConfig(config)
+	if err != nil {
+		return nil, err
+	}
+
+	generatedKubeVirtClient, err := generatedclient.NewForConfig(config)
 	if err != nil {
 		return nil, err
 	}
@@ -230,16 +275,35 @@ func GetKubevirtClientFromRESTConfig(config *rest.Config) (KubevirtClient, error
 		return nil, err
 	}
 
+	prometheusClient, err := promclient.NewForConfig(config)
+	if err != nil {
+		return nil, err
+	}
+
+	snapshotClient, err := k8ssnapshotclient.NewForConfig(config)
+	if err != nil {
+		return nil, err
+	}
+
+	dynamicClient, err := dynamic.NewForConfig(config)
+	if err != nil {
+		return nil, err
+	}
+
 	return &kubevirt{
 		master,
 		kubeconfig,
 		restClient,
 		config,
+		generatedKubeVirtClient,
 		cdiClient,
 		networkClient,
 		extensionsClient,
 		secClient,
 		discoveryClient,
+		prometheusClient,
+		snapshotClient,
+		dynamicClient,
 		coreClient,
 	}, nil
 }

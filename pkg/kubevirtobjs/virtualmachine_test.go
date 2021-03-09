@@ -4,7 +4,7 @@ import (
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
 
-	"github.com/fromanirh/kubevirt-template-validator/pkg/kubevirtobjs"
+	"github.com/kubevirt/kubevirt-template-validator/pkg/kubevirtobjs"
 
 	k6tv1 "kubevirt.io/client-go/api/v1"
 )

@@ -29,7 +29,7 @@ import (
 
 	"kubevirt.io/client-go/log"
 
-	"github.com/fromanirh/kubevirt-template-validator/pkg/webhooks"
+	"github.com/kubevirt/kubevirt-template-validator/pkg/webhooks"
 )
 
 const (

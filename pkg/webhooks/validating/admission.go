@@ -26,7 +26,7 @@ import (
 	k6tv1 "kubevirt.io/client-go/api/v1"
 	"kubevirt.io/client-go/log"
 
-	"github.com/fromanirh/kubevirt-template-validator/pkg/validation"
+	"github.com/kubevirt/kubevirt-template-validator/pkg/validation"
 )
 
 func ValidateVMTemplate(rules []validation.Rule, newVM, oldVM *k6tv1.VirtualMachine) []metav1.StatusCause {

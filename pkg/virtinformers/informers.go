@@ -19,6 +19,7 @@
 package virtinformers
 
 import (
+	"context"
 	"math/rand"
 	"sync"
 	"time"
@@ -141,7 +142,7 @@ func (f *kubeInformerFactory) Template() cache.SharedIndexInformer {
 			return nil
 		}
 
-		_, err = tmplclient.Templates(k8sv1.NamespaceAll).List(metav1.ListOptions{Limit: 1})
+		_, err = tmplclient.Templates(k8sv1.NamespaceAll).List(context.TODO(), metav1.ListOptions{Limit: 1})
 		if err != nil {
 			log.Log.Errorf("error probing the template resource: %v", err)
 			return nil

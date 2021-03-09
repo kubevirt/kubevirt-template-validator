@@ -1,25 +1,28 @@
-module github.com/fromanirh/kubevirt-template-validator
+module github.com/kubevirt/kubevirt-template-validator
 
-go 1.13
+go 1.15
 
 require (
 	github.com/davecgh/go-spew v1.1.1
-	github.com/fromanirh/okdutil v0.0.1
-	github.com/fsnotify/fsnotify v1.4.7
-	github.com/go-openapi/jsonreference v0.19.2 // indirect
-	github.com/golang/mock v0.0.0-20190713102442-dd8d2a22370e // indirect
-	github.com/onsi/ginkgo v1.8.0
-	github.com/onsi/gomega v1.5.1-0.20190515112211-6a48b4839f85
-	github.com/openshift/api v3.9.1-0.20190401220125-3a6077f1f910+incompatible
-	github.com/openshift/client-go v0.0.0-20190401163519-84c2b942258a
-	github.com/spf13/pflag v1.0.1
-	golang.org/x/text v0.3.4 // indirect
-	k8s.io/api v0.0.0-20190222213804-5cb15d344471
-	k8s.io/apimachinery v0.0.0-20190221213512-86fb29eff628
-	k8s.io/client-go v0.0.0-20190228174230-b40b2a5939e4
-	k8s.io/klog v0.3.0
-	kubevirt.io/client-go v0.19.0
-	kubevirt.io/containerized-data-importer v1.9.5 // indirect
+	github.com/fsnotify/fsnotify v1.4.9
+	github.com/onsi/ginkgo v1.12.1
+	github.com/onsi/gomega v1.10.1
+	github.com/openshift/api v0.0.0
+	github.com/openshift/client-go v0.0.0
+	github.com/spf13/pflag v1.0.5
+	k8s.io/api v0.20.2
+	k8s.io/apimachinery v0.20.2
+	k8s.io/client-go v12.0.0+incompatible
+	k8s.io/klog v1.0.0
+	kubevirt.io/client-go v0.38.1
 )
 
-replace github.com/go-kit/kit => github.com/go-kit/kit v0.3.0
+replace (
+	github.com/go-kit/kit => github.com/go-kit/kit v0.3.0
+	github.com/openshift/api => github.com/openshift/api v0.0.0-20200930075302-db52bc4ef99f // release-4.6
+	github.com/openshift/client-go => github.com/openshift/client-go v0.0.0-20200929181438-91d71ef2122c // release-4.6
+	github.com/operator-framework/operator-lifecycle-manager => github.com/operator-framework/operator-lifecycle-manager v0.0.0-20190128024246-5eb7ae5bdb7a
+	k8s.io/client-go => k8s.io/client-go v0.20.2
+	k8s.io/cluster-bootstrap => k8s.io/cluster-bootstrap v0.20.2
+	sigs.k8s.io/structured-merge-diff => sigs.k8s.io/structured-merge-diff v1.0.0
+)

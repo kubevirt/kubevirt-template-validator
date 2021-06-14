@@ -1,3 +1,4 @@
+Repo deprication note: this project has been moved, it is now part of the ssp-operator. The code is located here: https://github.com/kubevirt/ssp-operator/tree/master/internal/template-validator 
 # kubevirt-template-validator
 
 `kubevirt-template-validator` is a [kubevirt](http://kubevirt.io) addon to check the [annotations on templates](https://github.com/kubevirt/common-templates/blob/master/templates/VALIDATION.md) and reject them if unvalid.

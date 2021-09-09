@@ -26,7 +26,7 @@ RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 GO111MODULE=on go build -a -ldflags="-
 
 FROM registry.access.redhat.com/ubi8/ubi-minimal
 
-MAINTAINER "Francesco Romani" <fromani@redhat.com>
+MAINTAINER "The KubeVirt Project" <kubevirt-dev@googlegroups.com>
 ENV container docker
 
 RUN mkdir -p /etc/webhook/certs

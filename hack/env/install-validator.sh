@@ -13,26 +13,14 @@ sleep 10s
 
 oc create -f ${MANIFESTPATH}/manifests/template-view-role.yaml
 
-if [ "${CI}" == "true" ] && [ "${TRAVIS}" == "true" ]; then
-	REGISTRY=$(minishift openshift registry)
-
-	sed "s|image:.*|image: ${REGISTRY}/kubevirt/kubevirt-template-validator:devel|" < ${MANIFESTPATH}/manifests/service.yaml | \
-		sed "s|imagePullPolicy: Always|imagePullPolicy: IfNotPresent|g" | \
-		oc create -f -
-else
-	oc create -n ${NAMESPACE} -f ${MANIFESTPATH}/manifests/service.yaml
-fi
+sed "s|image:.*|image: ${VALIDATOR_IMAGE}|" < ${MANIFESTPATH}/manifests/service.yaml | \
+	sed "s|imagePullPolicy: Always|imagePullPolicy: IfNotPresent|g" | \
+	oc create -f -
 
 ${BASEPATH}/wait-webhook.sh
 sleep 10s
 
 ${MANIFESTPATH}/extract-ca.sh ${MANIFESTPATH}/manifests/validating-webhook.yaml | oc apply -n ${NAMESPACE} -f -
 
-if [ "${CI}" == "true" ] && [ "${TRAVIS}" == "true" ]; then
-	sleep 5s
-
-	oc get pods -n ${NAMESPACE}
-	oc describe pod -n ${NAMESPACE} -l "kubevirt.io=virt-template-validator"
-
-	sleep 5s
-fi
+oc get pods -n ${NAMESPACE}
+oc describe pod -n ${NAMESPACE} -l "kubevirt.io=virt-template-validator"

@@ -16,3 +16,5 @@ webhooks:
       apiVersions: ["v1alpha3"]
       resources: ["virtualmachines"]
   failurePolicy: Fail
+  admissionReviewVersions: ["v1", "v1beta1"]
+  sideEffects: None

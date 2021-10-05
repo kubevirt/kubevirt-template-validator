@@ -49,6 +49,9 @@ metadata:
     name: virt-template-validator
 spec:
   replicas: 2
+  selector:
+    matchLabels:
+      kubevirt.io: virt-template-validator
   template:
     metadata:
       name: virt-template-validator
